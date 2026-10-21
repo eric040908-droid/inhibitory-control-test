@@ -62,7 +62,7 @@ export function collectDeviceInfo(win = globalThis) {
     dpr: safe(() => win.devicePixelRatio, 1),
     browser: detectBrowser(safe(() => win.navigator.userAgent, '')),
     inputKind,
-    refreshHzEst: hzByWindow.has(win) ? hzByWindow.get(win) : null,
+    refreshHzEst: hzByWindow.get(win) ?? null,
   };
 }
 
@@ -73,7 +73,6 @@ export function measureRefreshHz(win = globalThis) {
   return new Promise((resolve) => {
     const raf = safe(() => win.requestAnimationFrame, null);
     if (typeof raf !== 'function') {
-      hzByWindow.set(win, null);
       resolve(null);
       return;
     }
@@ -82,7 +81,8 @@ export function measureRefreshHz(win = globalThis) {
     const finish = (hz) => {
       if (finished) return;
       finished = true;
-      hzByWindow.set(win, hz);
+      // 실패(null)가 이미 측정된 좋은 값을 덮어쓰지 않게 하고, WeakMap 키가 될 수 없는 win(null 등)은 캐시하지 않는다.
+      if (hz !== null && win !== null && typeof win === 'object') hzByWindow.set(win, hz);
       resolve(hz);
     };
     const timer = setTimeout(() => finish(null), HZ_TIMEOUT_MS);

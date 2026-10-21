@@ -36,6 +36,17 @@ function describeError(e) {
   return [name, message].filter(Boolean).join(': ') || 'storage error';
 }
 
+// 회차로 받아들일 수 있는 최소 모양. 읽기 함수들이 id·studentAlias·startedAt에 기대므로(찾기, 학생 목록, 정렬)
+// 이 셋이 틀린 레코드가 하나라도 섞이면 화면 전체가 죽거나 추이 순서가 조용히 틀어진다.
+// 특히 startedAt이 문자열 등이면 정렬 비교가 NaN이 되어 추이가 삽입 순서로 떨어진다 — 오류 없이 그래프가 오독된다.
+function validationError(session) {
+  if (session === null || typeof session !== 'object' || Array.isArray(session)) return 'session must be an object';
+  if (typeof session.id !== 'string' || session.id === '') return 'session.id must be a non-empty string';
+  if (typeof session.studentAlias !== 'string') return 'session.studentAlias must be a string';
+  if (typeof session.startedAt !== 'number' || !Number.isFinite(session.startedAt)) return 'session.startedAt must be a finite number';
+  return null;
+}
+
 // ---- 읽기/쓰기 기초 --------------------------------------------------------
 // readState는 던지지 않고 상태를 돌려준다.
 //   { status: 'ok', data }       읽었고 모양이 맞다
@@ -61,6 +72,12 @@ function readState() {
   }
   if (data === null || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.sessions)) {
     return { status: 'unreadable', error: 'stored data has an unknown shape' };
+  }
+  // 원소를 걸러내 읽지 않고, 하나라도 틀리면 전체를 읽을 수 없음으로 본다: 걸러 읽은 상태에서 저장하면
+  // 걸러진 레코드가 조용히 지워지는데, 손상된 자료는 복구할 수 있을 수 있다. (깨진 JSON과 같은 정책)
+  const badAt = data.sessions.findIndex((s) => validationError(s) !== null);
+  if (badAt >= 0) {
+    return { status: 'unreadable', error: `stored sessions[${badAt}] is invalid: ${validationError(data.sessions[badAt])}` };
   }
   if (data.schemaVersion !== SCHEMA_VERSION) {
     return { status: 'unreadable', error: `stored data has schema version ${data.schemaVersion}, expected ${SCHEMA_VERSION}` };
@@ -113,6 +130,8 @@ export function isAvailable() {
 // 같은 id가 이미 있으면 교체한다(검사 도중 저장 후 완료 저장처럼 같은 회차를 두 번 저장할 수 있다).
 // toolVersion은 항상 지금의 TOOL_VERSION으로 찍는다 — 호출한 쪽이 빠뜨려도 모든 회차에 남도록.
 export function saveSession(session) {
+  const invalid = validationError(session);
+  if (invalid) return { ok: false, error: invalid };
   return update((data) => {
     const stamped = { ...session, toolVersion: TOOL_VERSION };
     const at = data.sessions.findIndex((s) => s.id === stamped.id);
@@ -152,6 +171,9 @@ export function trendSessions(alias, level) {
 // 깨진 자료를 명시적으로 교체하는 경로이므로 읽을 수 없는 상태여도 쓴다. 가져온 회차의 toolVersion은 그대로 둔다.
 export function replaceAll(sessions) {
   if (!Array.isArray(sessions)) return { ok: false, error: 'sessions must be an array' };
+  // 가져오기 경로는 신뢰할 수 없는 JSON을 넘긴다. 일부만 걸러 넣으면 조용히 줄어드니, 하나라도 틀리면 통째로 거부한다.
+  const badAt = sessions.findIndex((s) => validationError(s) !== null);
+  if (badAt >= 0) return { ok: false, error: `sessions[${badAt}] is invalid: ${validationError(sessions[badAt])}` };
   const state = readState();
   const previous = state.status === 'ok' ? state.data.lastSetup ?? null : null;
   return writeData({ schemaVersion: SCHEMA_VERSION, sessions, lastSetup: previous });
