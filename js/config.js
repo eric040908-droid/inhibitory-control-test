@@ -59,4 +59,32 @@ export const THRESHOLDS = {
 };
 
 // 연습 블록: Go/No-Go 시행 수, 사용 난이도, 재시도 허용 횟수. (스펙 §5.8 임시값)
-export const PRACTICE = { go: 5, noGo: 3, level: 2, maxRetries: 1 };
+export const PRACTICE = {
+  go: 5,
+  noGo: 3,
+  level: 2,
+  maxRetries: 1,
+  // 3단계 추천: 연습을 모두 맞히고 평균 반응이 이 값(ms) 미만일 때. (스펙 §5.3 임시값)
+  fastMeanRtMs: 1000,
+  // 2단계 추천의 하한: 정반응이 이 개수 이상. (스펙 §5.3 임시값)
+  minHitsForLevel2: 3,
+  // 2단계 추천의 하한: 참기 성공이 이 개수 이상. (스펙 §5.3 임시값)
+  minRejectionsForLevel2: 1,
+  // 재시도 후에도 정반응이 이 개수 이하면 검사 중단을 안내한다. (스펙 §5.3 임시값)
+  abortMaxHits: 1,
+};
+
+// 결과 화면 "해석 한 줄"(js/interpretation.js)의 발화 기준. 전문가 검토 전의 임시값이다.
+// 해석 불가·주의 판정 기준은 위 THRESHOLDS에 있고, 여기는 그보다 약한 "방향 힌트" 기준이다.
+export const INTERPRETATION = {
+  // 후반 억제 실패가 전반보다 이 횟수 이상 많으면 "후반에 몰림". 차이가 이보다 작으면 "고르게"로 본다. (임시값)
+  lateShiftMinCommissions: 2,
+  // 후반 평균 반응이 전반의 이 배율 이상이면 "후반이 느려짐". (임시값)
+  lateSlowdownRatio: 1.1,
+  // Go 문항 중 누락 비율이 이 값 이상이면 "누락이 많음". THRESHOLDS.omissionRate(해석 불가)보다 낮아야 한다. (임시값)
+  manyOmissionRate: 0.25,
+  // No-Go 문항 중 억제 실패 비율이 이 값 이하면 "억제 실패 적음". (임시값)
+  fewCommissionRate: 0.2,
+  // No-Go 문항 중 억제 실패 비율이 이 값 이상이면 "억제 실패 많음". (임시값)
+  manyCommissionRate: 0.4,
+};
