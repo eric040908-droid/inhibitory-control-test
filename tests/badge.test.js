@@ -47,7 +47,7 @@ test('3단계에서 참기를 모두 성공한 학생은 양호로 나온다', (
     goTrials: 57, hits: 57, omissions: 0, maxConsecutiveOmissions: 0,
     noGoTrials: 28, correctRejections: 28, commissions: 0,
   }));
-  expect(b.status).toBe('ok');
+  expect(b).toEqual({ status: 'ok', reasons: [] });
 });
 
 test('No-Go 문항이 8개 미만이면 억제 지표 참고용이다', () => {
@@ -67,4 +67,29 @@ test('여러 조건에 걸리면 가장 심한 상태가 되고 이유는 모두
   const b = evaluateBadge(metricsWith({ goTrials: 10, omissions: 5, noGoTrials: 4, anticipatoryRate: 0.5 }));
   expect(b.status).toBe('uninterpretable');
   expect(b.reasons).toEqual(expect.arrayContaining(['omission', 'tooFewNoGo', 'anticipatory']));
+});
+
+// 경계값: 각 기준의 "걸리지 않는 쪽" 값을 고정한다. 비교 연산자(>=, <)가 바뀌면 여기서 깨진다.
+test('No-Go 문항이 정확히 8개면 참고용이 아니다 (최소치 충족)', () => {
+  expect(evaluateBadge(metricsWith({ noGoTrials: 8 }))).toEqual({ status: 'ok', reasons: [] });
+});
+
+test('누락이 Go 문항의 39%면 해석 불가가 아니다 (기준 바로 아래)', () => {
+  expect(evaluateBadge(metricsWith({ goTrials: 100, omissions: 39 }))).toEqual({ status: 'ok', reasons: [] });
+});
+
+test('조급 반응이 전체 문항의 19%면 해석 주의가 아니다 (기준 바로 아래)', () => {
+  expect(evaluateBadge(metricsWith({ anticipatoryRate: 0.19 }))).toEqual({ status: 'ok', reasons: [] });
+});
+
+test('무효 문항이 정확히 10%면 해석 주의다 (기준 이상)', () => {
+  expect(evaluateBadge(metricsWith({ invalidRate: 0.10 })).status).toBe('caution');
+});
+
+test('Go 누락 연속이 4문항이면 해석 주의가 아니다 (기준 바로 아래)', () => {
+  expect(evaluateBadge(metricsWith({ maxConsecutiveOmissions: 4 }))).toEqual({ status: 'ok', reasons: [] });
+});
+
+test('Go 문항이 0개면 누락 비율을 0으로 보고 예외 없이 양호로 판정한다', () => {
+  expect(evaluateBadge(metricsWith({ goTrials: 0, omissions: 0 }))).toEqual({ status: 'ok', reasons: [] });
 });
