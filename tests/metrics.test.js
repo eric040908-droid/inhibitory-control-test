@@ -76,3 +76,20 @@ test('Go 정반응이 하나도 없으면 평균과 편차가 null이다', () =>
   const m = computeMetrics([go(null), nogo(null)]);
   expect(m.meanRt).toBeNull(); expect(m.rtSd).toBeNull(); expect(m.consistency).toBeNull();
 });
+
+test('정확히 200ms는 정반응이고 199ms는 조급 반응이다', () => {
+  const edge = computeMetrics([go(200)]);
+  expect(edge.hits).toBe(1);
+  expect(edge.anticipatory).toBe(0);
+  expect(edge.meanRt).toBe(200);
+
+  const early = computeMetrics([go(199)]);
+  expect(early.hits).toBe(0);
+  expect(early.anticipatory).toBe(1);
+  expect(early.meanRt).toBeNull();
+});
+
+test('억제 실패(No-Go 반응)는 Go 누락의 연속을 끊는다', () => {
+  const m = computeMetrics([go(null), go(null), nogo(300), go(null), go(null)]);
+  expect(m.maxConsecutiveOmissions).toBe(2);
+});
