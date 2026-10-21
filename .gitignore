@@ -1,0 +1,6 @@
+node_modules/
+.superpowers/
+
+# 신청서 원본 문서 — 산출물이 아니라 참고 자료이므로 추적하지 않는다
+*.hwp
+호린솔_신청서.pdf
