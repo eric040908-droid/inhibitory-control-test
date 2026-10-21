@@ -90,6 +90,9 @@ test('Go 누락 연속이 4문항이면 해석 주의가 아니다 (기준 바�
   expect(evaluateBadge(metricsWith({ maxConsecutiveOmissions: 4 }))).toEqual({ status: 'ok', reasons: [] });
 });
 
-test('Go 문항이 0개면 누락 비율을 0으로 보고 예외 없이 양호로 판정한다', () => {
-  expect(evaluateBadge(metricsWith({ goTrials: 0, omissions: 0 }))).toEqual({ status: 'ok', reasons: [] });
+// 가드 계약: Go 문항이 0개면 누락 비율을 0으로 본다. 실제 회차에서는 누락 ≤ Go 문항이라
+// omissions > 0이면서 goTrials = 0인 입력은 일어나지 않는다. 이 입력은 실회차 재현이 아니라,
+// 가드가 없으면 3/0 = Infinity가 되어 uninterpretable로 뒤집히는 것을 잡기 위한 것이다.
+test('Go 문항이 0개면 누락 비율을 0으로 본다 (가드 계약, 실회차에서는 불가능한 입력)', () => {
+  expect(evaluateBadge(metricsWith({ goTrials: 0, omissions: 3 }))).toEqual({ status: 'ok', reasons: [] });
 });
