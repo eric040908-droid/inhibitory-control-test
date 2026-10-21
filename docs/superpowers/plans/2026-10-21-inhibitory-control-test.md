@@ -106,7 +106,7 @@ Expected: FAIL — `js/config.js`를 찾을 수 없다
 
 위 테스트가 요구하는 상수를 named export로 둔다. 추가로 반응 일관성 라벨 경계를 `THRESHOLDS`에 넣는다: `consistencySdGoodMs: 120`, `consistencySdFairMs: 220`. 각 상수 위에 스펙의 어느 절에서 온 값인지와 **임시값임**을 한 줄 주석으로 남긴다(§5.8).
 
-`noGoGapSpread`에 대한 설명 주석을 반드시 남긴다: No-Go 사이 Go 개수의 범위는 고정값이 아니라 난이도의 `noGoRatio`에서 유도한다. 평균 간격은 `round(1 / noGoRatio) − 1`이고, 실제 범위는 `[max(1, 평균 − spread), 평균 + spread]`다. 간격 범위를 모든 난이도에 고정하면 평균 간격이 비율과 어긋나 요구한 No-Go 비율이 나오지 않는다.
+`noGoGapSpread`에 대한 설명 주석을 반드시 남긴다: No-Go 사이 Go 개수의 범위는 고정값이 아니라 난이도의 `noGoRatio`에서 유도한다. 평균 간격은 `round(1 / noGoRatio) − 1`이고, 실제 퍼짐은 `min(noGoGapSpread, 평균 − 1)`, 범위는 `[평균 − 퍼짐, 평균 + 퍼짐]`이다. 범위를 평균에 대해 **대칭**으로 유지하는 것이 핵심이다 — 아래쪽만 1에서 자르면 평균 간격이 올라가 요구한 No-Go 비율보다 낮게 나온다. 간격 범위를 모든 난이도에 고정해도 같은 문제가 생긴다.
 
 - [ ] **Step 5: 테스트가 통과하는지 확인한다**
 
@@ -132,7 +132,7 @@ git commit -m "feat: add project scaffold and spec constants"
 - Consumes: `LEVELS`, `THRESHOLDS` from `js/config.js`
 - Produces: `generateSequence(level: 1|2|3, trialCount: number, rng?: () => number): Trial[]` where `Trial = { index: number, type: 'go' | 'nogo' }`. `rng`의 기본값은 `Math.random`이며, 테스트는 시드 난수를 주입한다. 그리고 `gapRangeFor(level: 1|2|3): { min: number, max: number }`.
 
-**간격 범위는 난이도에서 유도한다.** 평균 간격 = `round(1 / LEVELS[level].noGoRatio) − 1`, 범위 = `[max(1, 평균 − THRESHOLDS.noGoGapSpread), 평균 + THRESHOLDS.noGoGapSpread]`. 결과: 1단계 평균 4 → 2~6, 2단계 평균 3 → 1~5, 3단계 평균 2 → 1~3. 모든 난이도에 같은 범위를 쓰면 평균 간격이 비율과 어긋나 요구한 No-Go 비율이 나오지 않는다.
+**간격 범위는 난이도에서 유도하며, 평균에 대해 대칭이다.** 평균 간격 = `round(1 / LEVELS[level].noGoRatio) − 1`, 퍼짐 = `min(THRESHOLDS.noGoGapSpread, 평균 − 1)`, 범위 = `[평균 − 퍼짐, 평균 + 퍼짐]`. 결과: 1단계 평균 4 → 2~6, 2단계 평균 3 → 1~5, 3단계 평균 2 → 1~3. 아래쪽만 1에서 자르면 평균 간격이 올라가 No-Go 비율이 요구값보다 낮아지므로, 위쪽도 같은 만큼 줄여 대칭을 지킨다. 모든 난이도에 같은 범위를 쓰면 평균 간격이 비율과 어긋난다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
