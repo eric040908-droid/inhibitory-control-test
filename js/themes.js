@@ -9,7 +9,7 @@ export const THEMES = [
   { id: 'animal',  label: '동물',
     goGlyph: '🐶', crossNoGoGlyph: '🚗', sameNoGoGlyph: '🐱', itemGlyph: '🦴', completionGlyph: '🎉' },
   { id: 'vehicle', label: '탈것',
-    goGlyph: '🚗', crossNoGoGlyph: '🍎', sameNoGoGlyph: '🚀', itemGlyph: '⛽', completionGlyph: '🏁' },
+    goGlyph: '🚗', crossNoGoGlyph: '🍎', sameNoGoGlyph: '🚌', itemGlyph: '⛽', completionGlyph: '🏁' },
   { id: 'food',    label: '음식',
     goGlyph: '🍕', crossNoGoGlyph: '🐶', sameNoGoGlyph: '🍔', itemGlyph: '🍪', completionGlyph: '🎂' },
   { id: 'fruit',   label: '과일',
