@@ -710,16 +710,25 @@ test('CSV는 문항 한 줄씩이고 머리글에 분석에 필요한 열이 다
   const csv = toTrialCsv([sessionFixture({ trialCount: 2 })]);
   const [header, ...rows] = csv.trim().split('\n');
   for (const col of ['session_id','student_alias','started_at','tool_version','level','theme_id','length',
-                     'trial_index','trial_type','rt_ms','outcome','anticipatory','extra_taps','invalid',
-                     'device_kind','screen_w','screen_h','refresh_hz_est','browser','input_kind'])
+                     'trial_count','complete','trial_index','trial_type','rt_ms','outcome','anticipatory',
+                     'extra_taps','invalid','device_kind','screen_w','screen_h','refresh_hz_est',
+                     'browser','input_kind'])
     expect(header).toContain(col);
   expect(rows).toHaveLength(2);
 });
 
-test('outcome 열이 네 가지 결과로 적힌다', () => {
+test('outcome 열이 metrics.js의 정의를 따른다', () => {
   const csv = toTrialCsv([sessionFixture({ responses: [go(500), go(null), nogo(300), nogo(null)] })]);
   const outcomes = csv.trim().split('\n').slice(1).map(r => r.split(',')[columnIndex(csv, 'outcome')]);
   expect(outcomes).toEqual(['hit', 'omission', 'commission', 'correct_rejection']);
+});
+
+test('200ms 미만의 Go 반응은 hit이 아니라 anticipatory다', () => {
+  // metrics.js는 이 문항을 정반응으로 세지 않는다. CSV가 hit으로 적으면
+  // 논문이 CSV에서 센 정반응 수와 화면이 보여준 수가 달라진다.
+  const csv = toTrialCsv([sessionFixture({ responses: [go(100), go(500)] })]);
+  const outcomes = csv.trim().split('\n').slice(1).map(r => r.split(',')[columnIndex(csv, 'outcome')]);
+  expect(outcomes).toEqual(['anticipatory', 'hit']);
 });
 
 test('쉼표나 줄바꿈이 든 별칭을 넣어도 CSV 열이 밀리지 않는다', () => {
@@ -767,6 +776,10 @@ Expected: FAIL — `toTrialCsv is not a function`
 - [ ] **Step 3: `js/exportImport.js`를 구현한다**
 
 CSV는 쉼표·따옴표·줄바꿈이 든 값을 RFC 4180 방식으로 감싼다. `parseBackupJson`은 절대 던지지 않고, 필수 필드(`id`, `studentAlias`, `level`, `responses`)가 있는 회차만 통과시킨다. **가져오기 함수는 저장소를 건드리지 않는다** — 병합 여부는 호출자(Task 14)가 결정한다.
+
+**`outcome` 열은 `js/metrics.js`의 정의를 따른다.** 값은 `hit`, `omission`, `commission`, `correct_rejection`, `anticipatory` 다섯 가지다. Go 문항의 200ms 미만 반응은 `anticipatory`이고 `hit`이 아니다 — `metrics.js`가 그 문항을 정반응으로 세지 않기 때문이다. No-Go 문항의 200ms 미만 반응은 `commission`이면서 `anticipatory` 열이 1이다(중복 계상이 맞다, §5.7). 이 일치가 깨지면 논문이 CSV에서 센 수와 도구가 화면에 보여준 수가 달라진다.
+
+**유효성 조건은 `js/storage.js`에서 가져온다.** `storage.js`가 `validationError`를 export하고 `exportImport.js`가 그것을 import한다. 두 모듈이 같은 조건을 각자 적으면 조용히 어긋나고, 그러면 `parseBackupJson`이 통과시킨 세션이 `replaceAll`에서 **배열 전체와 함께 거부**된다.
 
 - [ ] **Step 4: 테스트가 통과하는지 확인한다**
 
