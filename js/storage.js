@@ -127,6 +127,19 @@ export function isAvailable() {
   }
 }
 
+// 저장된 문자열을 파싱하지 않고 그대로 돌려준다. 비었거나 접근이 실패하면 null.
+// 읽을 수 없는 자료(깨진 JSON, 손상된 레코드, 다른 버전)는 다른 읽기 함수에서 빈 결과로 보이므로,
+// 교사가 replaceAll로 덮어쓰기 전에 원본을 파일로 내려받을 수 있게 하는 유일한 통로다.
+export function readRaw() {
+  const storage = currentStorage();
+  if (!storage) return null;
+  try {
+    return storage.getItem(STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // 같은 id가 이미 있으면 교체한다(검사 도중 저장 후 완료 저장처럼 같은 회차를 두 번 저장할 수 있다).
 // toolVersion은 항상 지금의 TOOL_VERSION으로 찍는다 — 호출한 쪽이 빠뜨려도 모든 회차에 남도록.
 export function saveSession(session) {

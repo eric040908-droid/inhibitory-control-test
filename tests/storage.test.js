@@ -3,7 +3,7 @@ import { collectDeviceInfo, measureRefreshHz } from '../js/deviceInfo.js';
 import {
   STORAGE_KEY, SCHEMA_VERSION, setStorage,
   saveSession, isAvailable, listStudents, listSessions, getSession, trendSessions,
-  replaceAll, lastSetup, saveLastSetup,
+  replaceAll, lastSetup, saveLastSetup, readRaw,
 } from '../js/storage.js';
 
 // ---- 저장소 스텁 --------------------------------------------------------
@@ -510,4 +510,33 @@ test('measureRefreshHz: 나중의 측정 실패가 이미 측정된 값을 덮�
   delete win.requestAnimationFrame;
   expect(await measureRefreshHz(win)).toBeNull();
   expect(collectDeviceInfo(win).refreshHzEst).toBe(60);
+});
+
+// ---- readRaw: 읽을 수 없는 자료를 덮어쓰기 전에 원본을 꺼내는 통로 ---------------
+test('readRaw: 정상 데이터가 있으면 저장된 문자열을 그대로 돌려준다(파싱 결과가 아니다)', () => {
+  saveSession(sessionFixture({ id: 'a' }));
+  const raw = readRaw();
+  expect(typeof raw).toBe('string');
+  expect(raw).toBe(memory.getItem(STORAGE_KEY));
+  expect(JSON.parse(raw).sessions.map(s => s.id)).toEqual(['a']);
+});
+
+test('readRaw: 파싱할 수 없는 손상 데이터도 그 문자열 그대로 돌려준다', () => {
+  memory.setItem(STORAGE_KEY, '{not json');
+  expect(readRaw()).toBe('{not json');
+  const withBadRecord = JSON.stringify({ schemaVersion: SCHEMA_VERSION, sessions: [null] });
+  memory.setItem(STORAGE_KEY, withBadRecord);
+  expect(readRaw()).toBe(withBadRecord);
+});
+
+test('readRaw: 저장소가 비어 있으면 null이다', () => {
+  expect(readRaw()).toBeNull();
+});
+
+test('readRaw: 접근이 던지는 저장소나 저장소가 없는 환경에서도 던지지 않고 null이다', () => {
+  stubStorageThatThrows();
+  expect(() => readRaw()).not.toThrow();
+  expect(readRaw()).toBeNull();
+  setStorage(null);
+  expect(readRaw()).toBeNull();
 });
