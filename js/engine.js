@@ -15,7 +15,17 @@
 //
 // 반응시간 = 입력 이벤트의 시각 − 자극이 실제로 그려진 시각. 핸들러 실행 시각은 쓰지 않는다.
 //   그려진 시각의 기준: markStimulusRendered(t)가 불렸으면 max(t, 자극 시작 시각), 아니면 자극 시작 시각.
-// 허용 구간 = [기준, 기준 + stimulusMs + responseGraceMs], 끝 경계 포함.
+// 허용 구간 = [기준, 기준 + stimulusMs + responseGraceMs], 끝 경계 포함. 입력이 구간 안인지는 항상 이벤트 시각으로 판정한다.
+//   구간이 끝나면 엔진은 그 문항을 closeSlackMs 뒤에 무반응으로 닫는다. 이 여유는 닫는 시점만 늦출 뿐 구간을 넓히지 않는다:
+//   여유 안에서도 이벤트 시각이 구간을 넘은 입력은 반응이 아니다(그 입력이 도착하면 그 자리에서 문항을 닫는다).
+// 이벤트 시각이 자극 시작 시각보다 이른 입력은 이 문항에 속하지 않는다. 직전 간격에 일어난 탭이 핸들러만 늦게 실행된 것이므로
+//   직전 문항에 반응이 있었으면 그 문항의 extraTaps로 세고, 없었으면 버린다. (rtMs 0 반응으로 만들면 아이의 실제 반응이 가려진다.)
+//   0으로 막는 것은 자극 시작 시각 ≤ 이벤트 시각 < 그려진 시각 구간(프레임 지연)뿐이다.
+//
+// extraTaps = 그 문항의 첫 반응(rtMs를 만든 입력) 이후, 다음 문항의 자극이 시작되기 전까지 들어온 탭의 수.
+//   첫 반응 자체는 세지 않는다. 반응이 없었던(rtMs가 null인) 문항과 무효 문항은 항상 0이다.
+//   반응이 자극을 즉시 끝내므로 연타는 대부분 문항 사이 간격에 떨어진다 — 그 탭은 직전 문항의 값이다.
+//   이 값은 연구용 CSV로 나가는 원자료이며 metrics.js는 읽지 않는다.
 // 반응이 들어오면 자극 제시 시간이 남아 있어도 즉시 끝낸다 — stimulusMs는 "최대" 제시 시간이다.
 //
 // 훅 호출 규칙:
@@ -37,10 +47,6 @@ const State = Object.freeze({
   ABORTED: 'aborted',
 });
 
-// 허용 구간 끝 정각의 입력을 받아 주기 위한 여유. 닫는 타이머를 구간 끝 + 1ms에 걸면 같은 ms에 도착한
-// 입력이 타이머보다 먼저 처리된다. 입력이 구간 안인지는 이 여유가 아니라 이벤트 시각으로 판정한다.
-const CLOSE_SLACK_MS = 1;
-
 function assertTime(value, name) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new TypeError(`${name}: 유한한 숫자(ms)가 필요하다 (받은 값: ${String(value)})`);
@@ -61,6 +67,7 @@ const noop = () => {};
 export function createEngine({ trials, levelParams, hooks = {}, clock }) {
   const { stimulusMs, interTrialMs } = levelParams;
   const windowMs = stimulusMs + THRESHOLDS.responseGraceMs;
+  const closeSlackMs = THRESHOLDS.closeSlackMs;
   const onStimulus = hooks.onStimulus ?? noop;
   const onStimulusEnd = hooks.onStimulusEnd ?? noop;
   const onTrialComplete = hooks.onTrialComplete ?? noop;
@@ -75,8 +82,10 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
   let startedAt = 0;          // onStimulus를 요청한 시각
   let renderedAt = null;      // markStimulusRendered로 받은 시각 (없으면 null)
 
-  // 첫 입력이 기록된 뒤 gap 동안 들어오는 연타를 올려 줄 Response
+  // 첫 입력이 기록된 뒤 gap 동안 들어오는 연타를 올려 줄 Response (반응이 없었던 문항이면 null)
   let tapTarget = null;
+  // 직전 문항의 tapTarget. 직전 간격에 일어난 탭이 다음 자극이 시작된 뒤에 핸들러로 도착했을 때 올려 줄 곳.
+  let previousTapTarget = null;
 
   let stimulusTimer = null;
   let closeTimer = null;
@@ -100,15 +109,17 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
     const base = baseTime();
     const now = clock.now();
     stimulusTimer = state === State.STIMULUS
-      ? clock.setTimeout(endStimulus, Math.max(0, base + stimulusMs - now))
+      ? clock.setTimeout(() => { stimulusTimer = null; endStimulus(); }, Math.max(0, base + stimulusMs - now))
       : null;
-    closeTimer = clock.setTimeout(closeWindow, Math.max(0, base + windowMs + CLOSE_SLACK_MS - now));
+    closeTimer = clock.setTimeout(() => { closeTimer = null; closeWindow(); },
+      Math.max(0, base + windowMs + closeSlackMs - now));
   }
 
   function startTrial(next) {
     trial = next;
     startedAt = clock.now();
     renderedAt = null;
+    previousTapTarget = tapTarget;
     tapTarget = null;
     state = State.STIMULUS;
     armTrialTimers();
@@ -116,15 +127,14 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
   }
 
   function endStimulus() {
-    stimulusTimer = null;
     if (state !== State.STIMULUS) return;
     state = State.GRACE;
     onStimulusEnd(trial);
   }
 
-  // 반응 없이 허용 구간이 끝났다.
+  // 반응 없이 허용 구간이 끝났다. (닫는 타이머가 만료됐거나, 구간을 넘은 이벤트 시각의 입력이 도착했다.)
   function closeWindow() {
-    closeTimer = null;
+    clearTimers();
     if (state === State.STIMULUS) endStimulus();
     if (state !== State.GRACE) return;
     const record = { index: trial.index, type: trial.type, rtMs: null, extraTaps: 0, invalid: false };
@@ -158,7 +168,7 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
   function finish() {
     clearTimers();
     state = State.FINISHED;
-    tapTarget = null;
+    tapTarget = previousTapTarget = null;
     onFinish(snapshotAll());
   }
 
@@ -182,10 +192,18 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
     input(eventTimeStampMs) {
       assertTime(eventTimeStampMs, 'input');
       if (isTrialRunning()) {
+        // 직전 간격에 일어난 탭이 늦게 도착했다. 이 문항의 반응이 아니다.
+        if (eventTimeStampMs < startedAt) {
+          if (previousTapTarget !== null) previousTapTarget.extraTaps += 1;
+          return;
+        }
         const sinceRendered = eventTimeStampMs - baseTime();
-        // 구간 끝 + 여유 사이에 도착한, 이벤트 시각이 구간을 넘은 입력은 반응이 아니다.
-        if (sinceRendered > windowMs) return;
-        // 그려지기 전에 닿은 터치(프레임 경계)는 음수가 되지 않게 0으로 막는다.
+        // 이벤트 시각이 구간을 넘었다 — 반응이 아니고, 구간이 이미 끝났다는 증거이므로 문항을 무반응으로 닫는다.
+        if (sinceRendered > windowMs) {
+          closeWindow();
+          return;
+        }
+        // 시작 시각 ≤ 이벤트 < 그려진 시각(프레임 지연)은 음수가 되지 않게 0으로 막는다.
         const rtMs = Math.max(0, sinceRendered);
         const wasStimulusShowing = state === State.STIMULUS;
         const record = { index: trial.index, type: trial.type, rtMs, extraTaps: 0, invalid: false };
@@ -196,8 +214,10 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
         enterGap();
         if (wasStimulusShowing) onStimulusEnd(finished);
         onTrialComplete(snapshot(record));
-      } else if (state === State.GAP && tapTarget !== null) {
-        tapTarget.extraTaps += 1;
+      } else if (state === State.GAP) {
+        // 마지막으로 시작한 자극보다 이른 이벤트 시각의 탭은 그 앞 간격에 속한다.
+        const target = eventTimeStampMs < startedAt ? previousTapTarget : tapTarget;
+        if (target !== null) target.extraTaps += 1;
       }
     },
 
@@ -220,7 +240,7 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
       } else {
         return;
       }
-      tapTarget = null;
+      tapTarget = previousTapTarget = null;
       state = State.PAUSED;
     },
 
@@ -233,7 +253,7 @@ export function createEngine({ trials, levelParams, hooks = {}, clock }) {
       if (state === State.FINISHED || state === State.ABORTED) return;
       clearTimers();
       if (isTrialRunning()) invalidateCurrentTrial();
-      tapTarget = null;
+      tapTarget = previousTapTarget = null;
       state = State.ABORTED;
     },
 

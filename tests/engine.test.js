@@ -504,7 +504,7 @@ describe('훅 순서', () => {
     clock.advance(LEVELS[2].stimulusMs);
     expect(hooks.onStimulusEnd).toHaveBeenCalledTimes(1);
     expect(hooks.onTrialComplete).not.toHaveBeenCalled();
-    clock.advance(THRESHOLDS.responseGraceMs + 1);
+    clock.advance(THRESHOLDS.responseGraceMs + THRESHOLDS.closeSlackMs);
     expect(hooks.onTrialComplete).toHaveBeenCalledTimes(1);
     expect(hooks.onTrialComplete.mock.calls[0][0]).toMatchObject({ index: 0, rtMs: null, invalid: false });
   });
@@ -522,7 +522,7 @@ describe('훅 순서', () => {
   test('무반응이면 허용 구간 끝에서 interTrialMs 뒤에 다음 문항이 시작한다', () => {
     const { engine, clock, hooks } = setup({ trials: [goTrial(0), goTrial(1)], level: 3 });
     engine.start();
-    const closeAt = WINDOW_3 + 1; // 닫힘은 구간 끝 정각 + 1ms (정각 입력을 받아 주기 위한 여유)
+    const closeAt = WINDOW_3 + THRESHOLDS.closeSlackMs; // 닫힘은 구간 끝 + closeSlackMs
     clock.advance(closeAt + LEVELS[3].interTrialMs - 1);
     expect(hooks.onStimulus).toHaveBeenCalledTimes(1);
     clock.advance(1);
@@ -553,7 +553,7 @@ describe('끝내기', () => {
   test('마지막 문항이 무반응이면 허용 구간이 닫히고 간격이 지난 뒤에 onFinish가 불린다', () => {
     const { engine, clock, hooks } = setup({ trials: [goTrial(0)], level: 3 });
     engine.start();
-    clock.advance(WINDOW_3 + 1);
+    clock.advance(WINDOW_3 + THRESHOLDS.closeSlackMs);
     expect(hooks.onFinish).not.toHaveBeenCalled();
     clock.advance(LEVELS[3].interTrialMs - 1);
     expect(hooks.onFinish).not.toHaveBeenCalled();
@@ -790,7 +790,171 @@ describe('config 값 사용', () => {
     engine.start();
     clock.advance(999); expect(hooks.onStimulusEnd).not.toHaveBeenCalled();
     clock.advance(1);   expect(hooks.onStimulusEnd).toHaveBeenCalledTimes(1);
-    clock.advance(THRESHOLDS.responseGraceMs + 1 + 199);
+    clock.advance(THRESHOLDS.responseGraceMs + THRESHOLDS.closeSlackMs + 199);
+    expect(hooks.onStimulus).toHaveBeenCalledTimes(1);
+    clock.advance(1);
+    expect(hooks.onStimulus).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---- 추가: 자극 시작 이전 시각의 입력은 이 문항의 반응이 아니다 -------------------------
+// 직전 간격에 일어난 탭이 다음 자극이 시작된 뒤에 핸들러로 도착할 수 있다(보상 애니메이션이 메인 스레드를 쓰는 동안).
+// 그 탭이 다음 문항의 rtMs 0 반응이 되면 아이의 실제 반응이 가려진다.
+
+describe('자극 시작 이전 이벤트 시각의 입력', () => {
+  test('직전 문항에 반응이 있었으면 그 문항의 연타로 세고, 이 문항은 소비하지 않는다', () => {
+    const { engine, clock, hooks } = setup({ trials: [goTrial(0), goTrial(1)], level: 1 });
+    engine.start();
+    clock.advance(400); engine.input(clock.now());
+    clock.advance(LEVELS[1].interTrialMs - 100);
+    const tapAt = clock.now();               // 간격 안에서 일어난 탭
+    clock.advance(100);                       // 1번 문항 시작
+    expect(hooks.onStimulus).toHaveBeenCalledTimes(2);
+    engine.input(tapAt);                      // 핸들러는 이제야 실행된다
+    expect(engine.responses()).toHaveLength(1);
+    expect(engine.responses()[0]).toMatchObject({ index: 0, rtMs: 400, extraTaps: 1 });
+    // 1번 문항은 아직 열려 있고, 아이의 실제 반응이 정상으로 기록된다.
+    clock.advance(250); engine.input(clock.now());
+    expect(engine.responses()[1]).toMatchObject({ index: 1, rtMs: 250, extraTaps: 0 });
+  });
+
+  test('직전 문항에 반응이 없었으면 버린다 — 이 문항을 소비하지도, 연타로 세지도 않는다', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0), goTrial(1)], level: 3 });
+    engine.start();
+    clock.advance(WINDOW_3 + THRESHOLDS.closeSlackMs);   // 0번 문항 무반응으로 닫힘
+    clock.advance(LEVELS[3].interTrialMs - 100);
+    const tapAt = clock.now();
+    clock.advance(100);                                   // 1번 문항 시작
+    engine.input(tapAt);
+    expect(engine.responses()).toEqual([{ index: 0, type: 'go', rtMs: null, extraTaps: 0, invalid: false }]);
+    clock.advance(300); engine.input(clock.now());
+    expect(engine.responses()[1]).toMatchObject({ rtMs: 300, extraTaps: 0 });
+  });
+
+  test('이미 이 문항에 반응한 뒤(간격 중)에 도착해도 이 문항이 아니라 직전 문항의 연타다', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0), goTrial(1)], level: 1 });
+    engine.start();
+    clock.advance(400); engine.input(clock.now());
+    clock.advance(LEVELS[1].interTrialMs - 100);
+    const tapAt = clock.now();
+    clock.advance(100);
+    clock.advance(250); engine.input(clock.now());       // 1번 문항 반응
+    engine.input(tapAt);                                   // 늦게 도착한 옛 탭
+    expect(engine.responses()[0]).toMatchObject({ index: 0, extraTaps: 1 });
+    expect(engine.responses()[1]).toMatchObject({ index: 1, rtMs: 250, extraTaps: 0 });
+  });
+
+  test('이벤트 시각이 자극 시작 시각과 같으면 이 문항의 입력이다 (경계 포함)', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0)], level: 1 });
+    clock.advance(777);
+    engine.start();
+    engine.input(clock.now());
+    expect(engine.responses()[0]).toMatchObject({ rtMs: 0, extraTaps: 0 });
+  });
+
+  test('시작 1ms 전의 이벤트 시각은 이 문항의 입력이 아니다', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0)], level: 1 });
+    clock.advance(777);
+    engine.start();
+    engine.input(clock.now() - 1);
+    expect(engine.responses()).toEqual([]);
+    clock.advance(200); engine.input(clock.now());
+    expect(engine.responses()[0].rtMs).toBe(200);
+  });
+
+  test('가려졌다 돌아온 뒤에는 가려지기 전 간격의 탭을 어디에도 세지 않는다', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0), goTrial(1), goTrial(2)], level: 1 });
+    engine.start();
+    clock.advance(400); engine.input(clock.now());
+    const tapAt = clock.now() + 10;
+    clock.advance(20); engine.pause(); engine.resume();
+    clock.advance(LEVELS[1].interTrialMs);                // 1번 문항 시작
+    engine.input(tapAt);
+    expect(engine.responses()[0].extraTaps).toBe(0);
+    expect(engine.responses()).toHaveLength(1);
+  });
+
+  test('그려진 시각 이전이어도 시작 시각 이후면 0으로 막힌 반응이다 (프레임 지연 구간만 남는 클램프)', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0)], level: 2 });
+    engine.start();
+    engine.markStimulusRendered(clock.now() + 16);
+    clock.advance(1);
+    engine.input(clock.now());
+    expect(engine.responses()[0].rtMs).toBe(0);
+  });
+});
+
+// ---- 추가: closeSlackMs — 닫는 시점만 늦추고 허용 구간은 넓히지 않는다 ------------------------
+
+describe('closeSlackMs', () => {
+  const SLACK = THRESHOLDS.closeSlackMs;
+
+  test('config에 있고 허용 구간보다 한참 짧다', () => {
+    expect(SLACK).toBeGreaterThan(1);
+    expect(SLACK).toBeLessThan(LEVELS[3].interTrialMs);
+  });
+
+  test('무반응 문항은 구간 끝 + closeSlackMs에 닫힌다 — 1ms 전에는 닫히지 않는다', () => {
+    const { engine, clock, hooks } = setup({ trials: [goTrial(0), goTrial(1)], level: 3 });
+    engine.start();
+    clock.advance(WINDOW_3 + SLACK - 1);
+    expect(hooks.onTrialComplete).not.toHaveBeenCalled();
+    expect(engine.responses()).toEqual([]);
+    clock.advance(1);
+    expect(hooks.onTrialComplete).toHaveBeenCalledTimes(1);
+    expect(engine.responses()).toHaveLength(1);
+  });
+
+  test('슬랙 값은 엔진을 만들 때 config에서 읽는다', () => {
+    const original = THRESHOLDS.closeSlackMs;
+    THRESHOLDS.closeSlackMs = 200;
+    try {
+      const { engine, clock, hooks } = setup({ trials: [goTrial(0)], level: 3 });
+      engine.start();
+      clock.advance(WINDOW_3 + 199);
+      expect(hooks.onTrialComplete).not.toHaveBeenCalled();
+      clock.advance(1);
+      expect(hooks.onTrialComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      THRESHOLDS.closeSlackMs = original;
+    }
+  });
+
+  test.each([1, 10, SLACK - 1])('슬랙 안쪽(구간 끝 +%ims)의 이벤트 시각은 여전히 무효다', (offset) => {
+    const { engine, clock, hooks } = setup({ trials: [goTrial(0), goTrial(1)], level: 3 });
+    engine.start();
+    clock.advance(WINDOW_3 + offset);
+    expect(hooks.onTrialComplete).not.toHaveBeenCalled();   // 아직 열려 있다
+    engine.input(clock.now());                               // 이벤트 시각이 구간을 넘었다
+    expect(engine.responses()).toEqual([{ index: 0, type: 'go', rtMs: null, extraTaps: 0, invalid: false }]);
+    expect(hooks.onTrialComplete).toHaveBeenCalledTimes(1);
+    expect(hooks.onTrialComplete.mock.calls[0][0]).toMatchObject({ rtMs: null });
+  });
+
+  test('구간을 넘은 입력이 문항을 닫을 때 남는 타이머는 간격 타이머 하나뿐이다', () => {
+    const { engine, clock, hooks } = setup({ trials: [goTrial(0), goTrial(1)], level: 3 });
+    engine.start();
+    clock.advance(WINDOW_3 + 10);
+    engine.input(clock.now());
+    expect(clock.pending()).toBe(1);
+    clock.advance(LEVELS[3].interTrialMs);
+    expect(hooks.onStimulus).toHaveBeenCalledTimes(2);
+    expect(hooks.onTrialComplete).toHaveBeenCalledTimes(1);   // 닫는 타이머가 문항을 두 번 닫지 않는다
+  });
+
+  test('이벤트 시각이 구간 안이면 핸들러가 닫는 타이머 직전(슬랙 안)에 늦게 실행돼도 유효한 반응이다', () => {
+    const { engine, clock } = setup({ trials: [goTrial(0)], level: 3 });
+    engine.start();
+    clock.advance(WINDOW_3 + SLACK - 1);                     // 핸들러가 구간 끝 뒤에 실행된다
+    engine.input(WINDOW_3 - 5);                               // 하지만 탭은 구간 안에서 일어났다
+    expect(engine.responses()).toEqual([{ index: 0, type: 'go', rtMs: WINDOW_3 - 5, extraTaps: 0, invalid: false }]);
+  });
+
+  test('슬랙은 제시·간격 타이밍에 영향이 없다 — 반응한 문항은 반응 시각에서 interTrialMs 뒤에 다음 문항이 시작한다', () => {
+    const { engine, clock, hooks } = setup({ trials: [goTrial(0), goTrial(1)], level: 3 });
+    engine.start();
+    clock.advance(300); engine.input(clock.now());
+    clock.advance(LEVELS[3].interTrialMs - 1);
     expect(hooks.onStimulus).toHaveBeenCalledTimes(1);
     clock.advance(1);
     expect(hooks.onStimulus).toHaveBeenCalledTimes(2);
