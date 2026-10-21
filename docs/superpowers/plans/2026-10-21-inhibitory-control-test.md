@@ -82,7 +82,7 @@ test('판정 기준값이 스펙과 일치한다', () => {
   expect(THRESHOLDS).toMatchObject({
     anticipatoryMs: 200, anticipatoryRate: 0.20, omissionRate: 0.40,
     consecutiveOmissions: 5, minNoGoTrials: 8, invalidTrialRate: 0.10,
-    responseGraceMs: 500, firstGoTrials: 3, noGoGapMin: 1, noGoGapMax: 4,
+    responseGraceMs: 500, firstGoTrials: 3, noGoGapSpread: 2,
     rewardCellRatio: 0.70, practiceAutoAdvanceMs: 8000,
   });
 });
@@ -106,6 +106,8 @@ Expected: FAIL — `js/config.js`를 찾을 수 없다
 
 위 테스트가 요구하는 상수를 named export로 둔다. 추가로 반응 일관성 라벨 경계를 `THRESHOLDS`에 넣는다: `consistencySdGoodMs: 120`, `consistencySdFairMs: 220`. 각 상수 위에 스펙의 어느 절에서 온 값인지와 **임시값임**을 한 줄 주석으로 남긴다(§5.8).
 
+`noGoGapSpread`에 대한 설명 주석을 반드시 남긴다: No-Go 사이 Go 개수의 범위는 고정값이 아니라 난이도의 `noGoRatio`에서 유도한다. 평균 간격은 `round(1 / noGoRatio) − 1`이고, 실제 범위는 `[max(1, 평균 − spread), 평균 + spread]`다. 간격 범위를 모든 난이도에 고정하면 평균 간격이 비율과 어긋나 요구한 No-Go 비율이 나오지 않는다.
+
 - [ ] **Step 5: 테스트가 통과하는지 확인한다**
 
 Run: `npx vitest run tests/config.test.js`
@@ -128,7 +130,9 @@ git commit -m "feat: add project scaffold and spec constants"
 
 **Interfaces:**
 - Consumes: `LEVELS`, `THRESHOLDS` from `js/config.js`
-- Produces: `generateSequence(level: 1|2|3, trialCount: number, rng?: () => number): Trial[]` where `Trial = { index: number, type: 'go' | 'nogo' }`. `rng`의 기본값은 `Math.random`이며, 테스트는 시드 난수를 주입한다.
+- Produces: `generateSequence(level: 1|2|3, trialCount: number, rng?: () => number): Trial[]` where `Trial = { index: number, type: 'go' | 'nogo' }`. `rng`의 기본값은 `Math.random`이며, 테스트는 시드 난수를 주입한다. 그리고 `gapRangeFor(level: 1|2|3): { min: number, max: number }`.
+
+**간격 범위는 난이도에서 유도한다.** 평균 간격 = `round(1 / LEVELS[level].noGoRatio) − 1`, 범위 = `[max(1, 평균 − THRESHOLDS.noGoGapSpread), 평균 + THRESHOLDS.noGoGapSpread]`. 결과: 1단계 평균 4 → 2~6, 2단계 평균 3 → 1~5, 3단계 평균 2 → 1~3. 모든 난이도에 같은 범위를 쓰면 평균 간격이 비율과 어긋나 요구한 No-Go 비율이 나오지 않는다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
@@ -149,10 +153,18 @@ test('No-Go 문항이 연달아 나오지 않는다', () => {
   }
 });
 
-test('No-Go 사이의 Go 개수가 1~4 범위에 들어간다', () => {
-  const seq = generateSequence(3, 85, seededRng(7));
-  const gaps = gapsBetweenNoGo(seq); // 첫 No-Go 이전 구간은 제외
-  for (const g of gaps) { expect(g).toBeGreaterThanOrEqual(1); expect(g).toBeLessThanOrEqual(4); }
+test('간격 범위는 난이도의 No-Go 비율에서 유도된다', () => {
+  expect(gapRangeFor(1)).toEqual({ min: 2, max: 6 });
+  expect(gapRangeFor(2)).toEqual({ min: 1, max: 5 });
+  expect(gapRangeFor(3)).toEqual({ min: 1, max: 3 });
+});
+
+test('No-Go 사이의 Go 개수가 그 난이도의 범위에 들어간다', () => {
+  for (const level of [1, 2, 3]) {
+    const { min, max } = gapRangeFor(level);
+    const gaps = gapsBetweenNoGo(generateSequence(level, 85, seededRng(level * 7))); // 첫 No-Go 이전 구간은 제외
+    for (const g of gaps) { expect(g).toBeGreaterThanOrEqual(min); expect(g).toBeLessThanOrEqual(max); }
+  }
 });
 
 test('3단계에서 Go Go No-Go 고정 반복이 되지 않는다', () => {
@@ -193,12 +205,12 @@ Expected: FAIL — `generateSequence is not a function`
 
 - [ ] **Step 3: `generateSequence(level, trialCount, rng)`를 `js/trialSequence.js`에 구현한다**
 
-접근: 목표 No-Go 개수를 `round(trialCount × noGoRatio)`로 정하고, 앞 `firstGoTrials`개를 Go로 고정한 뒤 남은 구간에 `noGoGapMin`~`noGoGapMax` 사이 간격을 무작위로 뽑아 No-Go를 배치한다. 간격 합이 남은 구간을 넘으면 마지막 No-Go를 버리고, 목표 개수에 못 미치면 가장 넓은 간격을 쪼갠다. 비율은 평균으로만 맞추고 고정 윈도를 쓰지 않는다(§5.1).
+접근: 앞 `firstGoTrials`개를 Go로 고정한 뒤, `gapRangeFor(level)`에서 간격을 무작위로 뽑아 Go를 그만큼 놓고 No-Go 하나를 놓는 것을 `trialCount`에 닿을 때까지 반복한다. 마지막에 자리가 모자라면 남은 칸을 Go로 채운다. 목표 No-Go 개수를 미리 정해 배치하지 않는다 — 비율은 간격의 평균에서 저절로 나오고, 고정 윈도를 쓰지 않는다(§5.1).
 
 - [ ] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `npx vitest run tests/trialSequence.test.js`
-Expected: PASS (8 tests)
+Expected: PASS (9 tests)
 
 - [ ] **Step 5: 커밋**
 
@@ -970,7 +982,7 @@ git commit -m "feat: add app shell, screen router, and synthesized audio"
 
 **Interfaces:**
 - Consumes: `THEMES`, `TRIAL_COUNTS`, `LEVELS`, `THRESHOLDS`, `storage.lastSetup/saveLastSetup/listStudents`
-- Produces: `setupScreen: { mount(rootEl, { onStart, onHistory }), unmount() }`. `onStart({ alias, themeId, length, levelOverride: 1|2|3|null })`.
+- Produces: `setupScreen: { mount(rootEl, { onStart, onHistory, deps }), unmount() }`. `onStart({ alias, themeId, length, levelOverride: 1|2|3|null })`. `deps = { audio }`는 생략하면 실제 `js/audio.js`를 쓰고, 테스트는 대역을 주입한다 — 화면 모듈은 모듈을 직접 import해 쓰지 않고 `deps`를 통해 받는다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
@@ -1063,8 +1075,9 @@ git commit -m "feat: add teacher setup screen with no-go shortage warning"
 **Interfaces:**
 - Consumes: `createEngine`, `generateSequence`, `THEMES`/`noGoGlyphFor`/`rewardCellCount`, `recommendLevel`, `audio`, `LEVELS`, `PRACTICE`, `THRESHOLDS`
 - Produces:
-  `taskScreen: { mount(rootEl, { trials, level, theme, onFinish, onAbort }), unmount() }` — `onFinish(responses)`, `onAbort(responses)`.
-  `practiceScreen: { mount(rootEl, { theme, attempt, onDone }), unmount() }` — `onDone(recommendation, practiceResult)`.
+  `taskScreen: { mount(rootEl, { trials, level, theme, onFinish, onAbort, deps }), unmount() }` — `onFinish(responses)`, `onAbort(responses)`.
+  `practiceScreen: { mount(rootEl, { theme, attempt, onDone, deps }), unmount() }` — `onDone(recommendation, practiceResult)`.
+  두 화면 모두 `deps = { createEngine, audio }`를 받는다. 생략하면 실제 모듈을 쓰고, 테스트는 대역을 주입한다 — 엔진 호출(`input`/`pause`/`resume`)과 소리 호출을 관찰할 수 있어야 한다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
@@ -1385,6 +1398,9 @@ test('매니페스트가 세로 모드 설치형 앱으로 선언된다', () => 
 });
 
 test('서비스 워커가 캐시해야 할 파일을 모두 나열한다', () => {
+  // listShippedFiles(): 저장소에서 index.html, manifest.webmanifest,
+  // css/**/*.css, js/**/*.js 를 재귀로 모아 저장소 상대 경로로 돌려주는 테스트 헬퍼.
+  // tests/, docs/, node_modules/, sw.js 자신은 제외한다.
   const sw = readFileSync('sw.js', 'utf8');
   for (const f of listShippedFiles()) expect(sw).toContain(f);
 });
