@@ -552,10 +552,11 @@ test('1·2단계는 다른 범주 그림을, 3단계는 같은 범주 그림을 
   expect(noGoGlyphFor(t, 3)).toBe(t.sameNoGoGlyph);
 });
 
-test('격자 칸 수는 전체 문항의 70%이고 최소 1칸이다', () => {
-  expect(rewardCellCount(50)).toBe(35);
-  expect(rewardCellCount(18)).toBe(13);
-  expect(rewardCellCount(1)).toBeGreaterThanOrEqual(1);
+test('격자 칸 수는 전체 문항의 70%를 내림한 값이고 최소 1칸이다', () => {
+  expect(rewardCellCount(50)).toBe(35);  // 35.0 — 정수로 떨어짐
+  expect(rewardCellCount(18)).toBe(12);  // 12.6 → 내림
+  expect(rewardCellCount(65)).toBe(45);  // 45.5 → 내림 (반올림이면 46)
+  expect(rewardCellCount(1)).toBe(1);    // 0.7 → 내림 0 → 최소 1로 올림
 });
 
 test('격자 칸 수는 전체 문항 수보다 적다', () => {
@@ -570,7 +571,9 @@ Expected: FAIL — `js/themes.js`가 없다
 
 - [ ] **Step 3: `js/themes.js`를 구현한다**
 
-테마 6종: `animal`(동물), `vehicle`(탈것), `food`(음식), `fruit`(과일), `shape`(도형), `weather`(날씨). 각 테마의 `sameNoGoGlyph`는 같은 범주 안에서 **한눈에 다른** 대상이어야 한다 — 동물 테마는 강아지/고양이 수준(§5.2). 그림은 이모지로 두고 외부 이미지 파일을 쓰지 않는다. `rewardCellCount`는 내림 후 최소 1.
+테마 6종: `animal`(동물), `vehicle`(탈것), `food`(음식), `fruit`(과일), `shape`(도형), `weather`(날씨). 각 테마의 `sameNoGoGlyph`는 같은 범주 안에서 **한눈에 다른** 대상이어야 한다 — 동물 테마는 강아지/고양이 수준(§5.2). 그림은 이모지로 두고 외부 이미지 파일을 쓰지 않는다.
+
+`rewardCellCount`는 **내림 후 최소 1**이다. 반올림이 아니라 내림인 이유: 70%를 넘지 않는 것이 보장되고(격자가 문항 수보다 커질 수 없다), 단조 증가하며, `85 × 0.7`이 부동소수점에서 `59.499...`가 되는 것 같은 .5 경계 흔들림이 없다.
 
 - [ ] **Step 4: 테스트가 통과하는지 확인한다**
 
