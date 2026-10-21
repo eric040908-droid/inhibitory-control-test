@@ -5,13 +5,14 @@
 // 이 모듈은 저장소를 건드리지 않는다. parseBackupJson은 파싱·검증만 하고, 기존 자료와 병합할지는 호출한 쪽이 정한다.
 // (기존 자료를 파괴하지 않는 일은 호출자의 몫이고, 여기서는 "쓸 수 있는 회차만, 이유를 밝히며" 돌려주는 데까지만 한다.)
 import { TOOL_VERSION, THRESHOLDS } from './config.js';
+import { validationError } from './storage.js';
 
 export const BACKUP_SCHEMA = 1;
 
 // ---- CSV -------------------------------------------------------------------
 // 열 순서는 분석 스크립트가 의존하므로 바꾸지 않는다. 학생 식별은 별칭(student_alias)뿐이다.
 const CSV_COLUMNS = [
-  'student_alias', 'session_id', 'started_at', 'tool_version', 'level', 'theme_id', 'length',
+  'student_alias', 'session_id', 'started_at', 'tool_version', 'level', 'theme_id', 'length', 'trial_count', 'complete',
   'trial_index', 'trial_type', 'rt_ms', 'outcome', 'anticipatory', 'extra_taps', 'invalid',
   'device_kind', 'screen_w', 'screen_h', 'refresh_hz_est', 'browser', 'input_kind',
 ];
@@ -34,16 +35,23 @@ function isoOrEmpty(ms) {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
-// outcome은 응답 유무만으로 정한다: Go+반응=hit, Go+무반응=omission, No-Go+반응=commission, No-Go+무반응=correct_rejection.
-// 200ms 미만의 조급 반응은 outcome을 바꾸지 않고 anticipatory 열에 따로 표시한다. (지표 계산에서 정반응으로 치지 않는 판단은 분석 쪽에서 anticipatory로 한다.)
-function outcomeOf(response) {
-  const responded = response.rtMs !== null && response.rtMs !== undefined;
-  if (response.type === 'go') return responded ? 'hit' : 'omission';
-  return responded ? 'commission' : 'correct_rejection';
-}
-
 function isAnticipatory(response) {
   return typeof response.rtMs === 'number' && response.rtMs < THRESHOLDS.anticipatoryMs;
+}
+
+// outcome은 js/metrics.js의 분류와 같다. 어긋나면 논문이 CSV에서 센 수와 화면에 보인 수가 달라진다.
+//   Go    + 무반응                → omission
+//   Go    + 200ms 미만 반응       → anticipatory (정반응이 아니다)
+//   Go    + 200ms 이상 반응       → hit
+//   No-Go + 무반응                → correct_rejection
+//   No-Go + 반응(200ms 미만 포함) → commission. 200ms 미만이면 anticipatory 열도 1이다(중복 계상이 맞다, 스펙 §5.7).
+function outcomeOf(response) {
+  const responded = response.rtMs !== null && response.rtMs !== undefined;
+  if (response.type === 'go') {
+    if (!responded) return 'omission';
+    return isAnticipatory(response) ? 'anticipatory' : 'hit';
+  }
+  return responded ? 'commission' : 'correct_rejection';
 }
 
 // 문항 한 줄씩. 머리글은 회차가 몇 개든 한 번만 나온다. responses가 비었거나 없는 회차는 줄이 없다.
@@ -55,7 +63,7 @@ export function toTrialCsv(sessions) {
     for (const r of responses) {
       const row = [
         session.studentAlias, session.id, isoOrEmpty(session.startedAt), session.toolVersion,
-        session.level, session.themeId, session.length,
+        session.level, session.themeId, session.length, session.trialCount, session.complete ? 1 : 0,
         r.index, r.type, r.rtMs, outcomeOf(r), isAnticipatory(r) ? 1 : 0, r.extraTaps, r.invalid ? 1 : 0,
         device.kind, device.screenW, device.screenH, device.refreshHzEst, device.browser, device.inputKind,
       ];
@@ -70,10 +78,9 @@ export function toBackupJson(sessions) {
   return JSON.stringify({ schema: BACKUP_SCHEMA, toolVersion: TOOL_VERSION, sessions }, null, 2);
 }
 
-// 회차로 받아들이는 조건. js/storage.js의 validationError(id가 비어 있지 않은 문자열, studentAlias가 문자열,
-// startedAt이 유한한 숫자)를 포함하고, 이 도구가 회차를 쓰는 데 필요한 level·responses를 더한다.
-// storage.js의 검증은 export되지 않아 조건을 여기에 다시 적었다 — 둘이 어긋나면 replaceAll이 배열 전체를 거부하므로
-// tests/exportImport.test.js가 "통과시킨 회차는 replaceAll이 받아들인다"를 고정해 둔다.
+// 회차로 받아들이는 조건. 핵심 세 조건(id가 비어 있지 않은 문자열, studentAlias가 문자열, startedAt이 유한한 숫자)은
+// js/storage.js의 validationError를 그대로 쓴다 — 둘이 어긋나면 replaceAll이 배열 전체를 거부한다.
+// 아래 level·responses 조건은 가져오기 고유의 요구이고, storage.js보다 엄격하다.
 function isTrial(r) {
   return r !== null && typeof r === 'object' && !Array.isArray(r)
     && (r.type === 'go' || r.type === 'nogo')
@@ -82,10 +89,8 @@ function isTrial(r) {
 
 // 쓸 수 없는 이유를 돌려주고, 쓸 수 있으면 null.
 function sessionProblem(s) {
-  if (s === null || typeof s !== 'object' || Array.isArray(s)) return '회차가 객체가 아닙니다';
-  if (typeof s.id !== 'string' || s.id === '') return 'id가 없거나 문자열이 아닙니다';
-  if (typeof s.studentAlias !== 'string') return 'studentAlias가 없거나 문자열이 아닙니다';
-  if (typeof s.startedAt !== 'number' || !Number.isFinite(s.startedAt)) return 'startedAt이 없거나 숫자가 아닙니다';
+  const shared = validationError(s);
+  if (shared) return shared;
   if (typeof s.level !== 'number' || !Number.isFinite(s.level)) return 'level이 없거나 숫자가 아닙니다';
   if (!Array.isArray(s.responses)) return 'responses가 없거나 배열이 아닙니다';
   const badAt = s.responses.findIndex((r) => !isTrial(r));

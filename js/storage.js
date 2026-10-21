@@ -39,7 +39,8 @@ function describeError(e) {
 // 회차로 받아들일 수 있는 최소 모양. 읽기 함수들이 id·studentAlias·startedAt에 기대므로(찾기, 학생 목록, 정렬)
 // 이 셋이 틀린 레코드가 하나라도 섞이면 화면 전체가 죽거나 추이 순서가 조용히 틀어진다.
 // 특히 startedAt이 문자열 등이면 정렬 비교가 NaN이 되어 추이가 삽입 순서로 떨어진다 — 오류 없이 그래프가 오독된다.
-function validationError(session) {
+// export: 가져오기(exportImport.js)가 같은 조건으로 회차를 거르도록 공유한다. 두 곳에 따로 적으면 어긋나 replaceAll이 배열 전체를 거부한다.
+export function validationError(session) {
   if (session === null || typeof session !== 'object' || Array.isArray(session)) return 'session must be an object';
   if (typeof session.id !== 'string' || session.id === '') return 'session.id must be a non-empty string';
   if (typeof session.studentAlias !== 'string') return 'session.studentAlias must be a string';

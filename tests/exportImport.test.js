@@ -1,6 +1,7 @@
 import { TOOL_VERSION } from '../js/config.js';
 import { toTrialCsv, toBackupJson, parseBackupJson } from '../js/exportImport.js';
 import { setStorage, replaceAll } from '../js/storage.js';
+import { computeMetrics } from '../js/metrics.js';
 
 // ---- 헬퍼 -----------------------------------------------------------------
 const go = (rtMs, extra = {}) => ({ index: 0, type: 'go', rtMs, extraTaps: 0, invalid: false, ...extra });
@@ -63,7 +64,7 @@ const cell = (csv, rowNo, name) => parseCsv(csv)[rowNo][columnIndex(csv, name)];
 
 const EXPECTED_HEADER = [
   'student_alias', 'session_id', 'started_at', 'tool_version', 'level', 'theme_id', 'length',
-  'trial_index', 'trial_type', 'rt_ms', 'outcome', 'anticipatory', 'extra_taps', 'invalid',
+  'trial_count', 'complete', 'trial_index', 'trial_type', 'rt_ms', 'outcome', 'anticipatory', 'extra_taps', 'invalid',
   'device_kind', 'screen_w', 'screen_h', 'refresh_hz_est', 'browser', 'input_kind',
 ];
 
@@ -72,16 +73,25 @@ test('CSV는 문항 한 줄씩이고 머리글에 분석에 필요한 열이 다
   const csv = toTrialCsv([sessionFixture({ trialCount: 2 })]);
   const [header, ...rows] = csv.trim().split('\n');
   for (const col of ['session_id','student_alias','started_at','tool_version','level','theme_id','length',
-                     'trial_index','trial_type','rt_ms','outcome','anticipatory','extra_taps','invalid',
-                     'device_kind','screen_w','screen_h','refresh_hz_est','browser','input_kind'])
+                     'trial_count','complete','trial_index','trial_type','rt_ms','outcome','anticipatory',
+                     'extra_taps','invalid','device_kind','screen_w','screen_h','refresh_hz_est',
+                     'browser','input_kind'])
     expect(header).toContain(col);
   expect(rows).toHaveLength(2);
 });
 
-test('outcome 열이 네 가지 결과로 적힌다', () => {
+test('outcome 열이 metrics.js의 정의를 따른다', () => {
   const csv = toTrialCsv([sessionFixture({ responses: [go(500), go(null), nogo(300), nogo(null)] })]);
   const outcomes = csv.trim().split('\n').slice(1).map(r => r.split(',')[columnIndex(csv, 'outcome')]);
   expect(outcomes).toEqual(['hit', 'omission', 'commission', 'correct_rejection']);
+});
+
+test('200ms 미만의 Go 반응은 hit이 아니라 anticipatory다', () => {
+  // metrics.js는 이 문항을 정반응으로 세지 않는다. CSV가 hit으로 적으면
+  // 논문이 CSV에서 센 정반응 수와 화면이 보여준 수가 달라진다.
+  const csv = toTrialCsv([sessionFixture({ responses: [go(100), go(500)] })]);
+  const outcomes = csv.trim().split('\n').slice(1).map(r => r.split(',')[columnIndex(csv, 'outcome')]);
+  expect(outcomes).toEqual(['anticipatory', 'hit']);
 });
 
 test('쉼표나 줄바꿈이 든 별칭을 넣어도 CSV 열이 밀리지 않는다', () => {
@@ -139,11 +149,11 @@ describe('toTrialCsv 형식', () => {
   });
 
   test('값이 문항마다 올바른 열에 들어간다', () => {
-    const csv = toTrialCsv([sessionFixture({ responses: [go(512, { index: 7, extraTaps: 2 })] })]);
+    const csv = toTrialCsv([sessionFixture({ trialCount: 1, responses: [go(512, { index: 7, extraTaps: 2 })] })]);
     const row = Object.fromEntries(EXPECTED_HEADER.map((h, i) => [h, parseCsvRow(csv)[i]]));
     expect(row).toEqual({
       student_alias: '학생1', session_id: 's1', started_at: '2026-10-21T01:02:03.000Z', tool_version: TOOL_VERSION,
-      level: '2', theme_id: 'animals', length: 'short',
+      level: '2', theme_id: 'animals', length: 'short', trial_count: '1', complete: '1',
       trial_index: '7', trial_type: 'go', rt_ms: '512', outcome: 'hit', anticipatory: '0', extra_taps: '2', invalid: '0',
       device_kind: 'tablet', screen_w: '1024', screen_h: '768', refresh_hz_est: '60', browser: 'Chrome', input_kind: 'touch',
     });
@@ -166,10 +176,45 @@ describe('toTrialCsv 형식', () => {
     expect(flags).toEqual(['1', '0', '0', '1', '0', '0']);
   });
 
-  test('anticipatory여도 outcome은 응답 유무만으로 정한다 (hit/commission), 해석은 분석 쪽이 한다', () => {
-    const csv = toTrialCsv([sessionFixture({ responses: [go(100), nogo(100)] })]);
-    const outcomes = parseCsv(csv).slice(1).map((r) => r[columnIndex(csv, 'outcome')]);
-    expect(outcomes).toEqual(['hit', 'commission']);
+  test('outcome은 metrics.js와 같다: 경계(199/200ms)와 Go·No-Go 조급 반응', () => {
+    const csv = toTrialCsv([sessionFixture({ responses: [go(100), go(199), go(200), go(201), nogo(100), nogo(199), nogo(200), nogo(null), go(null)] })]);
+    const rows = parseCsv(csv).slice(1);
+    const outcomes = rows.map((r) => r[columnIndex(csv, 'outcome')]);
+    const flags = rows.map((r) => r[columnIndex(csv, 'anticipatory')]);
+    expect(outcomes).toEqual(['anticipatory', 'anticipatory', 'hit', 'hit', 'commission', 'commission', 'commission', 'correct_rejection', 'omission']);
+    // No-Go의 조급 반응은 commission이면서 anticipatory=1 (중복 계상, §5.7)
+    expect(flags).toEqual(['1', '1', '0', '0', '1', '1', '0', '0', '0']);
+  });
+
+  test('CSV에서 센 개수가 computeMetrics와 같다 (논문 수치 = 화면 수치)', () => {
+    const responses = [go(100), go(150), go(200), go(500), go(null), go(800), nogo(100), nogo(300), nogo(null), nogo(null), go(100, { invalid: true }), nogo(300, { invalid: true })]
+      .map((r, i) => ({ ...r, index: i }));
+    const csv = toTrialCsv([sessionFixture({ responses })]);
+    // metrics.js는 무효(invalid) 문항을 뺀다. CSV는 원자료라 무효 줄도 남기므로 분석자는 invalid=0으로 거른다.
+    const valid = parseCsv(csv).slice(1).filter((r) => r[columnIndex(csv, 'invalid')] === '0');
+    const outcomes = valid.map((r) => r[columnIndex(csv, 'outcome')]);
+    const count = (name) => outcomes.filter((o) => o === name).length;
+    const anticipatory = valid.filter((r) => r[columnIndex(csv, 'anticipatory')] === '1').length;
+    const m = computeMetrics(responses);
+    expect(count('hit')).toBe(m.hits);
+    expect(count('omission')).toBe(m.omissions);
+    expect(count('commission')).toBe(m.commissions);
+    expect(count('correct_rejection')).toBe(m.correctRejections);
+    expect(anticipatory).toBe(m.anticipatory);
+  });
+
+  test('complete와 trial_count: 미완료 회차는 complete=0이고 trial_count가 실제 행 수보다 크다', () => {
+    const csv = toTrialCsv([
+      sessionFixture({ id: 'full', complete: true, trialCount: 3, responses: [go(500), go(500), go(500)] }),
+      sessionFixture({ id: 'quit', complete: false, trialCount: 10, responses: [go(500), go(null)] }),
+    ]);
+    const rows = parseCsv(csv).slice(1);
+    const pick = (id) => rows.filter((r) => r[columnIndex(csv, 'session_id')] === id);
+    expect(pick('full')).toHaveLength(3);
+    expect(pick('full').every((r) => r[columnIndex(csv, 'complete')] === '1' && r[columnIndex(csv, 'trial_count')] === '3')).toBe(true);
+    expect(pick('quit')).toHaveLength(2);
+    expect(pick('quit').every((r) => r[columnIndex(csv, 'complete')] === '0' && r[columnIndex(csv, 'trial_count')] === '10')).toBe(true);
+    expect(Number(pick('quit')[0][columnIndex(csv, 'trial_count')])).toBeGreaterThan(pick('quit').length);
   });
 
   test('invalid 문항은 invalid=1로 표시되고 행은 그대로 남는다', () => {
