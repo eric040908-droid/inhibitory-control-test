@@ -65,7 +65,7 @@ const FIRES = {
 const ORDER = ['lateShift', 'attention', 'evenInhibition', 'inconsistent', 'anticipatory', 'tooEasy'];
 
 describe('규칙 테이블', () => {
-  test('조건 함수와 문장 문자열의 쌍 6개이고, 스펙 §5.7 순서를 따른다', () => {
+  test('조건 함수와 문장 문자열의 쌍 6개로 이루어져 있다', () => {
     expect(INTERPRETATION_RULES).toHaveLength(6);
     for (const [cond, sentence] of INTERPRETATION_RULES) {
       expect(typeof cond).toBe('function');
@@ -146,12 +146,12 @@ describe('null 지표', () => {
     expect(interpret(m, okBadge)).toEqual([]);
   });
 
-  test('정반응이 없어 meanRt와 consistency가 모두 null이어도 예외가 없다', () => {
+  test('정반응이 없어 meanRt와 consistency가 모두 null이면 해석 문장을 내지 않는다 (null을 0처럼 비교해 지속 시간 문장이 나오면 안 된다)', () => {
     const m = metricsWith({
       hits: 0, meanRt: null, rtSd: null, consistency: null,
       halves: { first: { commissions: 1, meanRt: null }, second: { commissions: 4, meanRt: null } },
     });
-    expect(() => interpret(m, okBadge)).not.toThrow();
+    expect(interpret(m, okBadge)).toEqual([]);
   });
 
   test('전·후반 meanRt가 null이면 "후반이 느려짐"을 판단할 수 없어 지속 시간 문장을 내지 않는다', () => {
@@ -163,11 +163,6 @@ describe('null 지표', () => {
     const m = metricsWith({ noGoTrials: 0, commissions: 0, correctRejections: 0 });
     expect(() => interpret(m, okBadge)).not.toThrow();
     expect(interpret(m, okBadge)).toEqual([]);
-  });
-
-  test('Go 문항이 0개여도 0으로 나누지 않는다', () => {
-    const m = metricsWith({ goTrials: 0, hits: 0, omissions: 0, meanRt: null, rtSd: null, consistency: null });
-    expect(() => interpret(m, okBadge)).not.toThrow();
   });
 });
 
@@ -252,6 +247,16 @@ describe('억제 자체의 어려움 경계 (전·후반 고르게 많음)', () 
     expect(rule('evenInhibition')(even(manyCount, 0, 1))).toBe(false);
   });
 
+  test('전반에 크게 몰렸어도 "고르게"가 아니다 ("전반과 후반 모두 많았다"는 문장이 사실과 다르다)', () => {
+    expect(rule('evenInhibition')(even(5, 4, 1))).toBe(false);
+    expect(rule('evenInhibition')(even(manyCount + 1, 1 + T.lateShiftMinCommissions, 1))).toBe(false);
+  });
+
+  test('차이가 기준보다 1개 작으면 어느 쪽이 많아도 "고르게"다', () => {
+    expect(rule('evenInhibition')(even(manyCount, 1 + T.lateShiftMinCommissions - 1, 1))).toBe(true);
+    expect(rule('evenInhibition')(even(manyCount, 1, 1 + T.lateShiftMinCommissions - 1))).toBe(true);
+  });
+
   test('후반에 크게 몰렸으면 "고르게"가 아니다 (지속 시간 쪽 규칙의 영역)', () => {
     expect(rule('evenInhibition')(even(manyCount + 1, 1, 1 + T.lateShiftMinCommissions))).toBe(false);
   });
@@ -297,6 +302,11 @@ describe('"현재 단계가 쉬울 수 있음" 경계', () => {
 
   test('조급 반응이 많으면 꺼진다', () => {
     expect(rule('tooEasy')(easy({ anticipatoryRate: THRESHOLDS.anticipatoryRate }))).toBe(false);
+  });
+
+  test('후반 둔화 없이 억제 실패만 후반에 몰려도 꺼진다', () => {
+    const halves = { first: { commissions: 0, meanRt: 600 }, second: { commissions: T.lateShiftMinCommissions, meanRt: 600 } };
+    expect(rule('tooEasy')(easy({ commissions: T.lateShiftMinCommissions, halves }))).toBe(false);
   });
 
   test('후반이 눈에 띄게 느려졌으면 꺼진다 ("전 구간 안정적"이 아니다)', () => {

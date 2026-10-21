@@ -40,9 +40,10 @@ export const INTERPRETATION_RULES = [
   ],
   [
     // 억제 실패가 전·후반에 고르게 많음 → 억제 자체의 어려움
+    // 어느 쪽으로든 몰렸으면(차이가 기준 이상) "고르게"가 아니다.
     (m) => isMany(commissionRate(m)) &&
       m.halves.first.commissions > 0 && m.halves.second.commissions > 0 &&
-      !failuresLateShifted(m),
+      Math.abs(m.halves.second.commissions - m.halves.first.commissions) < T.lateShiftMinCommissions,
     '참아야 할 때 누른 횟수가 전반과 후반 모두 많았습니다. 시간이 지나서 흐트러진 것이 아니라 억제 자체가 어려운 것으로 보여, 멈추기 연습을 더 해 보세요.',
   ],
   [
