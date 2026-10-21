@@ -11,13 +11,13 @@ export const THEMES = [
   { id: 'vehicle', label: '탈것',
     goGlyph: '🚗', crossNoGoGlyph: '🍎', sameNoGoGlyph: '🚌', itemGlyph: '⛽', completionGlyph: '🏁' },
   { id: 'food',    label: '음식',
-    goGlyph: '🍕', crossNoGoGlyph: '🐶', sameNoGoGlyph: '🍔', itemGlyph: '🍪', completionGlyph: '🎂' },
+    goGlyph: '🍕', crossNoGoGlyph: '🐶', sameNoGoGlyph: '🍔', itemGlyph: '🏅', completionGlyph: '🎂' },
   { id: 'fruit',   label: '과일',
-    goGlyph: '🍎', crossNoGoGlyph: '🚗', sameNoGoGlyph: '🍌', itemGlyph: '🍓', completionGlyph: '🧺' },
+    goGlyph: '🍎', crossNoGoGlyph: '🚗', sameNoGoGlyph: '🍌', itemGlyph: '⭐', completionGlyph: '🧺' },
   { id: 'shape',   label: '도형',
-    goGlyph: '🔴', crossNoGoGlyph: '🍎', sameNoGoGlyph: '🟦', itemGlyph: '💎', completionGlyph: '⭐' },
+    goGlyph: '🔴', crossNoGoGlyph: '🚗', sameNoGoGlyph: '🔺', itemGlyph: '💎', completionGlyph: '⭐' },
   { id: 'weather', label: '날씨',
-    goGlyph: '🌞', crossNoGoGlyph: '🐶', sameNoGoGlyph: '⛄', itemGlyph: '🌟', completionGlyph: '🌈' },
+    goGlyph: '🌞', crossNoGoGlyph: '🐶', sameNoGoGlyph: '🌙', itemGlyph: '🎈', completionGlyph: '🌈' },
 ];
 
 export function getTheme(id) {
