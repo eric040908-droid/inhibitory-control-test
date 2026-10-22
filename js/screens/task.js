@@ -11,10 +11,10 @@
 // 공통 배선(엔진, rAF 신원, 가려짐, 격자)은 trialRunner.js에 있다.
 import { LEVELS } from '../config.js';
 import { rewardCellCount } from '../themes.js';
-import { createStudentView, createTrialRunner, exitFullscreen, requestFullscreen } from './trialRunner.js';
+import { HOLD_MS, createHoldButton, createStudentView, createTrialRunner, exitFullscreen, requestFullscreen } from './trialRunner.js';
 
 // 중단 버튼을 이만큼(ms) 눌러야 동작한다. 학생이 우연히 누를 수 없게 하는 것이 목적이라 1초 이상이어야 한다.
-export const ABORT_HOLD_MS = 1000;
+export const ABORT_HOLD_MS = HOLD_MS;
 // 마지막 문항 뒤 마무리 그림을 보여 주는 시간(ms). 격자가 덜 찼어도 항상 보여 준다.
 export const COMPLETION_HOLD_MS = 2500;
 
@@ -31,7 +31,6 @@ export function createTaskScreen(deps) {
       const controller = new AbortController();
       const { signal } = controller;
       let finished = false;
-      let holdTimer = null;
       let completionTimer = null;
 
       const view = createStudentView({ itemGlyph: theme.itemGlyph, cellCount: rewardCellCount(trials.length) });
@@ -61,39 +60,22 @@ export function createTaskScreen(deps) {
       });
 
       // ---- 중단 버튼 ----
-      // 왼쪽 위 구석, 작고 흐리다. 반응 영역(아래 절반 전체)과 겹치지 않고, 가로로 돌려도 반응 영역(오른쪽 절반) 밖이다.
-      // 짧게 누르면 아무 일도 없고, ABORT_HOLD_MS 동안 계속 눌러야 동작한다. 누르는 동안 안쪽이 차오른다.
-      const abortButton = document.createElement('button');
-      abortButton.type = 'button';
-      abortButton.className = 'abort-btn';
-      abortButton.dataset.abort = '';
-      abortButton.setAttribute('aria-label', '검사 중단 (길게 누르기)');
-      abortButton.textContent = '⏹';
-      abortButton.style.animationDuration = `${ABORT_HOLD_MS}ms`;
-      view.el.append(abortButton);
-
-      function cancelHold() {
-        if (holdTimer !== null) clearTimeout(holdTimer);
-        holdTimer = null;
-        delete abortButton.dataset.holding;
-      }
-
-      abortButton.addEventListener('pointerdown', () => {
-        if (finished) return;
-        cancelHold(); // 떼지 않은 채 다시 눌러도 처음부터 센다
-        abortButton.dataset.holding = 'true';
-        holdTimer = setTimeout(() => {
-          holdTimer = null;
-          if (finished) return;
+      // 교사만 할 수 있는 길게 누르기(trialRunner.js의 createHoldButton) 뒤에 둔다. 짧게 누르면 아무 일도 없다.
+      const abort = createHoldButton({
+        icon: '⏹',
+        label: '검사 중단 (길게 누르기)',
+        dataAttr: 'abort',
+        signal,
+        disabled: () => finished,
+        onHold() {
           finished = true;
-          cancelHold();
           const responses = runner.abort();
           onAbort?.(responses);
-        }, ABORT_HOLD_MS);
-      }, { signal });
-      for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
-        abortButton.addEventListener(type, cancelHold, { signal });
-      }
+        },
+      });
+      const abortButton = abort.el;
+      const cancelHold = abort.cancel;
+      view.el.append(abortButton);
 
       rootEl.append(view.el);
 

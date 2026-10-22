@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import './helpers/pointerEvent.js';
 import { LEVELS, PRACTICE, THRESHOLDS } from '../js/config.js';
 import { getTheme, rewardCellCount } from '../js/themes.js';
+import { HOLD_MS } from '../js/screens/trialRunner.js';
 import { createPracticeScreen, buildPracticeTrials, summarizePractice, DEMO } from '../js/screens/practiceScreen.js';
 
 const read = rel => readFileSync(resolve(process.cwd(), rel), 'utf8');
@@ -271,19 +272,34 @@ describe('summarizePractice', () => {
 });
 
 // ---- 연습이 끝난 뒤 --------------------------------------------------------------------------------
-describe('추천 확정 → 교사 화면, 자동 진행', () => {
-  test('모두 맞히고 빠르면 3단계 추천: 교사 화면에 3단계가 골라진 채 뜬다. 학생 화면은 없어진다', () => {
+// 검사가 시작된 뒤에는 "교사 화면"이 따로 없다: 기기는 학생이 들고 있고 교사는 자리에 없다. 학생에게는 글 없는 화면만 보이고,
+// 글이 있는 패널(난이도 선택, 중단 안내)은 구석 버튼을 길게 눌러야만 열린다.
+const teacherButton = () => qs('[data-teacher-open]');
+const holdTeacher = (ms = HOLD_MS) => {
+  teacherButton().dispatchEvent(pointerEvent('pointerdown'));
+  vi.advanceTimersByTime(ms);
+  teacherButton()?.dispatchEvent(pointerEvent('pointerup'));
+};
+// 학생이 보는 상태: 문장이 없고, 글이 있는 패널·선택지·안내가 DOM에 없다.
+function expectWordlessStudentState() {
+  expect(qs('[data-student-view]')).not.toBeNull();
+  expect(studentText()).toMatch(EMOJI_ONLY);
+  expect(qs('[data-teacher-view]')).toBeNull();
+  expect(qs('[data-teacher-notice]')).toBeNull();
+  expect(qs('input[name="level"]')).toBeNull();
+  expect(qs('[data-action="begin"]')).toBeNull();
+  expect(qs('[data-action="back"]')).toBeNull();
+  expect(qs('button:not([data-teacher-open])')).toBeNull(); // 눌러 볼 수 있는 것은 교사 제스처 버튼 하나뿐
+  expect(document.body.textContent.replace(/\s/g, '')).toMatch(EMOJI_ONLY); // 화면 전체에 글이 없다
+}
+
+describe('추천 확정 → 학생에게는 글 없는 전환 화면, 자동 진행', () => {
+  test('학생이 보는 상태에 문장이 없고 난이도 선택지도 없다 (추천 단계와 무관하게)', () => {
     mountPractice();
     finishPractice(responsesFor({ hits: 5, rejections: 3, rt: 500 }));
-    expect(qs('[data-teacher-view]')).not.toBeNull();
-    expect(qs('[data-student-view]')).toBeNull();
-    expect(qs('input[name="level"]:checked').value).toBe('3');
-  });
-
-  test('Go 3개 + 참기 1개면 2단계 추천', () => {
-    mountPractice();
-    finishPractice(responsesFor({ hits: 3, rejections: 1 }));
-    expect(qs('input[name="level"]:checked').value).toBe('2');
+    expectWordlessStudentState();
+    expect(qs('[data-countdown]')).not.toBeNull(); // 남은 시간 막대
+    expect(qs('.wait-glyph').textContent).toBe(getTheme('animal').itemGlyph);
   });
 
   test('THRESHOLDS.practiceAutoAdvanceMs 뒤 추천 단계로 자동 진행한다 (교사가 자리에 없어도 멈추지 않는다)', () => {
@@ -300,41 +316,89 @@ describe('추천 확정 → 교사 화면, 자동 진행', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  test('자동 진행 시간은 config에서 온다', () => {
-    expect(THRESHOLDS.practiceAutoAdvanceMs).toBe(8000);
+  test('3단계 추천도 자동으로 그 단계로 진행한다', () => {
     const { onDone } = mountPractice();
-    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
-    expect(qs('[data-countdown]').style.animationDuration).toBe(`${THRESHOLDS.practiceAutoAdvanceMs}ms`);
+    finishPractice(responsesFor({ hits: 5, rejections: 3, rt: 500 }));
     vi.advanceTimersByTime(THRESHOLDS.practiceAutoAdvanceMs);
-    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).toEqual({ level: 3, retry: false, abort: false, recommendedLevel: 3 });
   });
 
-  test('교사가 "바로 시작"을 누르면 즉시 진행하고, 남은 타이머로 두 번 진행하지 않는다', () => {
+  test('자동 진행 시간은 config에서 온다 (막대 길이도 같다)', () => {
+    expect(THRESHOLDS.practiceAutoAdvanceMs).toBe(8000);
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    expect(qs('[data-countdown]').style.animationDuration).toBe(`${THRESHOLDS.practiceAutoAdvanceMs}ms`);
+  });
+
+  test('화면을 아무리 두드려도(짧은 탭) 난이도가 바뀌거나 패널이 열리지 않는다', () => {
     const { onDone } = mountPractice();
     finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    for (const target of [qs('.wait-glyph'), qs('[data-countdown]'), qs('[data-student-view]')]) {
+      target.dispatchEvent(pointerEvent('pointerdown'));
+      target.dispatchEvent(pointerEvent('pointerup'));
+      click(target);
+    }
+    holdTeacher(300); // 교사 제스처 버튼도 짧게는 안 열린다
+    click(teacherButton());
+    expectWordlessStudentState();
+    vi.advanceTimersByTime(THRESHOLDS.practiceAutoAdvanceMs);
+    expect(onDone.mock.calls[0][0].level).toBe(2); // 추천 단계 그대로
+  });
+
+  test('교사 제스처: 999ms는 열리지 않고 1000ms에 열린다', () => {
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    teacherButton().dispatchEvent(pointerEvent('pointerdown'));
+    vi.advanceTimersByTime(HOLD_MS - 1);
+    expect(qs('[data-teacher-view]')).toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(qs('[data-teacher-view]')).not.toBeNull();
+    expect(qs('[data-student-view]')).toBeNull();
+  });
+
+  test('길게 누르면 추천 단계가 골라진 난이도 패널이 열리고, 자동 진행은 멈춘다', () => {
+    const { onDone } = mountPractice();
+    finishPractice(responsesFor({ hits: 5, rejections: 3, rt: 500 }));
+    vi.advanceTimersByTime(THRESHOLDS.practiceAutoAdvanceMs / 2);
+    holdTeacher();
+    expect(qs('input[name="level"]:checked').value).toBe('3');
+    vi.advanceTimersByTime(60000); // 교사가 읽는 중에 넘어가지 않는다
+    expect(onDone).not.toHaveBeenCalled();
     click(qs('[data-action="begin"]'));
     expect(onDone).toHaveBeenCalledTimes(1);
-    click(qs('[data-action="begin"]'));
-    vi.advanceTimersByTime(60000);
-    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).toEqual({ level: 3, retry: false, abort: false, recommendedLevel: 3 });
   });
 
   test('교사가 다른 단계를 고르면 그 단계로 진행하고, 추천값도 함께 남긴다', () => {
     const { onDone } = mountPractice();
     finishPractice(responsesFor({ hits: 5, rejections: 3, rt: 500 })); // 추천 3
+    holdTeacher();
     const one = qs('input[name="level"][value="1"]');
     one.checked = true;
     one.dispatchEvent(new Event('change', { bubbles: true }));
-    vi.advanceTimersByTime(THRESHOLDS.practiceAutoAdvanceMs);
+    click(qs('[data-action="begin"]'));
     expect(onDone.mock.calls[0][0]).toEqual({ level: 1, retry: false, abort: false, recommendedLevel: 3 });
+    click(qs('[data-action="begin"]'));
+    expect(onDone).toHaveBeenCalledTimes(1); // 이중 진행 방지
   });
 
-  test('연습 결과는 점수·성공/실패 표시 없이 난이도만 보여 준다', () => {
+  test('패널의 글에 점수·성공/실패 표시가 없다', () => {
     mountPractice();
     finishPractice(responsesFor({ hits: 3, rejections: 1 }));
+    holdTeacher();
     const text = qs('[data-teacher-view]').textContent;
     expect(text).not.toMatch(/실패|틀|못/);
     expect(text).not.toContain('3/5');
+  });
+
+  test('누르는 중에 화면을 떠나면 패널이 열리지 않고 타이머가 남지 않는다', () => {
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    teacherButton().dispatchEvent(pointerEvent('pointerdown'));
+    screen.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60000);
+    expect(qs('[data-teacher-view]')).toBeNull();
   });
 });
 
@@ -363,23 +427,26 @@ describe('재시도', () => {
     expect(stimulusGlyph()).not.toBe(''); // 시범이 다시 돈다
     finishPractice(responsesFor({ hits: 2, rejections: 0 }));
     // 재시도 후에도 못 미침, 정반응 2개(>1) → 1단계
+    holdTeacher();
     expect(qs('input[name="level"]:checked').value).toBe('1');
     expect(onDone).not.toHaveBeenCalled();
   });
 });
 
-describe('중단 안내는 교사 화면에만 뜬다', () => {
+describe('중단 상황: 학생에게는 글 없는 끝 화면, 안내는 길게 눌러야', () => {
   const failTwice = () => responsesFor({ hits: PRACTICE.abortMaxHits, rejections: 0 });
-
-  test('재시도 후에도 정반응이 1개 이하면 교사 화면에 안내가 뜨고 학생 화면은 없어진다', () => {
-    mountPractice({ attempt: PRACTICE.maxRetries + 1 });
+  const mountAborted = () => {
+    const m = mountPractice({ attempt: PRACTICE.maxRetries + 1 });
     finishPractice(failTwice());
-    const notice = qs('[data-teacher-notice="practice-abort"]');
-    expect(notice).not.toBeNull();
-    expect(notice.textContent).toContain('지금은 검사가 어렵습니다');
-    expect(notice.closest('[data-teacher-view]')).not.toBeNull();
-    expect(notice.closest('[data-student-view]')).toBeNull();
-    expect(qs('[data-student-view]')).toBeNull();
+    return m;
+  };
+
+  test('학생이 보는 상태에 문장이 없고, 실패를 암시하는 것이 없다 (마무리 그림만)', () => {
+    mountAborted();
+    expectWordlessStudentState();
+    expect(qs('.wait-glyph').textContent).toBe(getTheme('animal').completionGlyph);
+    expect(qs('[data-countdown]')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/어렵|실패|못/);
   });
 
   test('연습이 도는 내내 학생 화면 어디에도 그 안내가 없다', () => {
@@ -393,9 +460,30 @@ describe('중단 안내는 교사 화면에만 뜬다', () => {
     expect(studentText()).toMatch(EMOJI_ONLY);
   });
 
-  test('자동으로 넘어가지 않고, 교사가 "처음으로"를 누르면 abort로 알린다', () => {
-    const { onDone } = mountPractice({ attempt: PRACTICE.maxRetries + 1 });
-    finishPractice(failTwice());
+  test('짧은 탭·click으로는 안내가 열리지 않는다', () => {
+    mountAborted();
+    holdTeacher(HOLD_MS - 1);
+    click(teacherButton());
+    click(qs('.wait-glyph'));
+    expectWordlessStudentState();
+  });
+
+  test('길게 누르면 교사용 안내가 열린다: 교사 패널 안에만 있고 학생 화면은 없어진다', () => {
+    mountAborted();
+    holdTeacher();
+    const notice = qs('[data-teacher-notice="practice-abort"]');
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain('지금은 검사가 어렵습니다');
+    expect(notice.closest('[data-teacher-view]')).not.toBeNull();
+    expect(notice.closest('[data-student-view]')).toBeNull();
+    expect(qs('[data-student-view]')).toBeNull();
+  });
+
+  test('자동으로 넘어가지 않고, 안내를 연 뒤 "처음으로"를 눌러야 abort로 알린다', () => {
+    const { onDone } = mountAborted();
+    vi.advanceTimersByTime(60000);
+    expect(onDone).not.toHaveBeenCalled();
+    holdTeacher();
     vi.advanceTimersByTime(60000);
     expect(onDone).not.toHaveBeenCalled();
     click(qs('[data-action="back"]'));
@@ -409,13 +497,15 @@ describe('중단 안내는 교사 화면에만 뜬다', () => {
     finishPractice(failTwice());
     expect(onDone.mock.calls[0][0]).toMatchObject({ retry: true, abort: false });
     expect(qs('[data-teacher-notice="practice-abort"]')).toBeNull();
+    expect(qs('[data-teacher-open]')).toBeNull();
   });
 
-  test('중단 안내가 뜰 때 전체화면을 닫는다', () => {
+  test('안내를 열 때 전체화면을 닫는다 (열기 전에는 닫지 않는다)', () => {
     document.exitFullscreen = vi.fn(() => Promise.resolve());
     Object.defineProperty(document, 'fullscreenElement', { value: document.documentElement, configurable: true });
-    mountPractice({ attempt: PRACTICE.maxRetries + 1 });
-    finishPractice(failTwice());
+    mountAborted();
+    expect(document.exitFullscreen).not.toHaveBeenCalled();
+    holdTeacher();
     expect(document.exitFullscreen).toHaveBeenCalled();
   });
 });

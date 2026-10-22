@@ -50,7 +50,15 @@ export function createFlow({
         device: collectDeviceInfo(globalThis),
         toolVersion: TOOL_VERSION,
       };
-      return { session, saveResult: saveSession(session) };
+      // 저장이 던져도(storage.js는 안 던지지만 주입된 saveSession이 던질 수 있다) 검사 흐름은 이어진다: 학생이 마무리 화면에
+      // 갇히지 않게 하고, 실패는 saveResult로 남겨 결과 화면이 교사에게 알린다.
+      let saveResult;
+      try {
+        saveResult = saveSession(session);
+      } catch (error) {
+        saveResult = { ok: false, error: String(error?.message ?? error) };
+      }
+      return { session, saveResult };
     };
 
     let finished = null;

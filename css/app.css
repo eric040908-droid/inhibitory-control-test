@@ -469,7 +469,38 @@ input, select {
   75% { transform: rotate(9deg); }
 }
 
-/* ---- 연습 결과 (교사 화면) ------------------------------------------------- */
+/* ---- 연습 뒤 학생 화면 (글 없음) ---------------------------------------------
+   그림 하나와 (추천 확정일 때) 남은 시간 막대. 구석의 .abort-btn이 교사 제스처 버튼이다(길게 눌러야 교사용 패널이 열린다). */
+
+.wait-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 100vh;      /* dvh를 모르는 브라우저용 폴백 */
+  height: 100dvh;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.wait-glyph {
+  font-family: var(--font-emoji);
+  font-size: var(--stimulus-size);
+  line-height: 1;
+}
+
+.wait-screen .countdown {
+  width: min(60vmin, 18rem);
+  margin: 0;
+}
+
+/* ---- 연습 결과 (교사용 패널: 길게 눌러야 열린다) ---------------------------------- */
 
 .countdown {
   height: 0.5rem;
@@ -525,6 +556,24 @@ input, select {
     transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* 애니메이션을 줄이면 막대 애니메이션이 0.01ms에 끝나 "이미 가득 찬" 것처럼 보인다(길게 누르는 순간 완료된 듯, 카운트다운이 끝난 듯).
+   실제 타이머는 JS라 동작은 맞지만 보는 사람이 오해하므로, 그때는 채움 막대를 아예 그리지 않는다. 누르는 중에는 테두리가 굵어진다. */
+@media (prefers-reduced-motion: reduce) {
+  .abort-btn[data-holding]::after,
+  .countdown::after {
+    display: none;
+  }
+}
+
+html[data-reduced-motion="true"] .abort-btn[data-holding]::after,
+html[data-reduced-motion="true"] .countdown::after {
+  display: none;
+}
+
+.abort-btn[data-holding] {
+  border-width: 0.375rem;
 }
 
 html[data-reduced-motion="true"] *,

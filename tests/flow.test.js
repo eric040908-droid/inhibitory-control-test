@@ -172,6 +172,20 @@ describe('회차 저장', () => {
     expect(onSessionEnd.mock.calls[0][1]).toEqual({ ok: false, error: 'QuotaExceededError' });
   });
 
+  test('saveSession이 던져도 흐름은 이어진다: 완료·중단 모두 onSessionEnd가 불리고 실패가 saveResult에 담긴다', () => {
+    const saveSession = vi.fn(() => { throw new Error('boom'); });
+    const done = startAndFinish({ saveSession, collectDeviceInfo: () => ({}) });
+    expect(() => done.last().params.onFinish([])).not.toThrow();
+    done.last().params.onCompleted();
+    expect(done.onSessionEnd).toHaveBeenCalledTimes(1);
+    expect(done.onSessionEnd.mock.calls[0][1]).toEqual({ ok: false, error: 'boom' });
+
+    const aborted = startAndFinish({ saveSession, collectDeviceInfo: () => ({}) });
+    expect(() => aborted.last().params.onAbort([])).not.toThrow();
+    expect(aborted.onSessionEnd).toHaveBeenCalledTimes(1);
+    expect(aborted.onSessionEnd.mock.calls[0][1].ok).toBe(false);
+  });
+
   test('실제 저장소에 들어가고 다시 읽힌다', () => {
     const { last, onSessionEnd } = startAndFinish({}, { ...SETUP, levelOverride: 2 });
     last().params.onFinish([{ index: 0, type: 'go', rtMs: 400, extraTaps: 1, invalid: false }]);

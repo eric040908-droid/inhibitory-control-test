@@ -15,15 +15,17 @@
 // 그 뒤 학생이 직접 8문항을 한다. 이 시범의 흔들림은 "하지 마라"를 보여 주는 연출이며 학생의 오반응에는 쓰이지 않는다.
 //
 // 연습이 끝난 뒤:
-//   - 재시도: 학생에게 아무 표시도 없이 곧바로 onDone(retry)한다. 학생에게 실패를 알리지 않는다.
-//   - 추천 확정: 교사 화면(글 있음)이 추천 단계를 고른 채 뜨고, THRESHOLDS.practiceAutoAdvanceMs 뒤 자동으로 진행한다.
-//     교사가 자리에 없어도 검사가 멈추지 않는다.
-//   - 중단: "지금은 검사가 어렵습니다"는 교사 화면에만 뜬다. 학생 화면(data-student-view)에는 없다.
+//   - 재시도: 학생에게 아무 표시 없이 곧바로 onDone(retry)한다. 학생에게 실패를 알리지 않는다.
+//   - 추천 확정: 학생에게는 글 없는 전환 화면(테마 그림 + 남은 시간 막대)이 뜨고 THRESHOLDS.practiceAutoAdvanceMs 뒤 추천 단계로
+//     자동 진행한다. 교사가 자리에 없어도 검사가 멈추지 않는다. 난이도 변경(글 + 선택지)은 구석 버튼을 길게 눌러야 열리고,
+//     열면 자동 진행이 멈춘다.
+//   - 중단: 학생에게는 글 없는 끝 화면. "지금은 검사가 어렵습니다"는 길게 눌러야 열리는 교사용 패널에만 있다.
+//   검사 중에는 교사 화면이 따로 없다(기기를 학생이 들고 있다). 학생이 보면 안 되는 것은 길게 누르기 뒤에 둔다.
 import { LEVELS, PRACTICE, THRESHOLDS } from '../config.js';
 import { noGoGlyphFor, rewardCellCount } from '../themes.js';
 import { recommendLevel } from '../practice.js';
 import {
-  createStudentView, createTrialRunner, exitFullscreen, requestFullscreen, rewardsCell,
+  createHoldButton, createStudentView, createTrialRunner, exitFullscreen, requestFullscreen, rewardsCell,
 } from './trialRunner.js';
 
 // ---- 시범 연출 시간(ms) — 판정 기준이 아니라 연출이므로 여기 둔다 ------------------------------
@@ -193,74 +195,104 @@ export function createPracticeScreen(deps) {
         onDone?.(recommendation, result);
       }
 
-      // ---- 교사 화면: 추천 ----
-      function showRecommendation(recommended, result) {
-        let chosen = recommended;
-        const seconds = Math.round(THRESHOLDS.practiceAutoAdvanceMs / 1000);
+      // ---- 연습 뒤: 학생이 보는 화면과 교사 제스처 ----
+      // 검사가 시작된 뒤에는 "교사 화면"이 따로 없다. 기기는 학생이 들고 있고 교사는 자리에 없다. 그래서 연습이 끝난 뒤에도
+      // 학생에게는 글 없는 화면만 보이고, 글이 있는 교사용 패널(난이도 선택, 중단 안내)은 구석 버튼을 길게 눌러야만 열린다.
+      // 길게 누르기는 학생이 우연히 발동할 수 없다(짧은 탭으로는 열리지 않는다).
 
-        const panel = node('main', 'teacher-screen practice-result');
-        panel.dataset.teacherView = '';
-        panel.dataset.screen = 'practice-result';
-        panel.append(node('h1', null, '연습을 마쳤습니다'));
-        panel.append(node('p', 'text-muted', `${seconds}초 뒤 선택된 난이도로 검사가 자동으로 시작됩니다. 바꾸려면 다른 단계를 고르세요.`));
-
-        const group = node('fieldset', 'setup-section');
-        group.append(node('legend', null, '난이도'));
-        const grid = node('div', 'choice-grid');
-        for (const id of Object.keys(LEVELS).map(Number)) {
-          const label = node('label', 'choice');
-          const input = document.createElement('input');
-          input.type = 'radio';
-          input.name = 'level';
-          input.value = String(id);
-          input.checked = id === recommended;
-          label.append(input, node('span', 'choice-text', id === recommended ? `${id}단계 (추천)` : `${id}단계`));
-          grid.append(label);
+      // 글 없는 학생 화면: 테마 그림 하나(와 선택적으로 남은 시간 막대) + 구석의 교사 제스처 버튼.
+      function showStudentWait({ glyph, countdown, onTeacher }) {
+        const wait = node('div', 'wait-screen');
+        wait.dataset.studentView = '';
+        wait.dataset.screen = 'practice-wait';
+        wait.addEventListener('contextmenu', (event) => event.preventDefault());
+        const picture = node('div', 'wait-glyph', glyph);
+        wait.append(picture);
+        if (countdown) {
+          const bar = node('div', 'countdown');
+          bar.dataset.countdown = '';
+          bar.style.animationDuration = `${THRESHOLDS.practiceAutoAdvanceMs}ms`;
+          wait.append(bar);
         }
-        group.append(grid);
-        group.addEventListener('change', (event) => { chosen = Number(event.target.value); }, { signal });
-        panel.append(group);
-
-        const countdown = node('div', 'countdown');
-        countdown.dataset.countdown = '';
-        countdown.style.animationDuration = `${THRESHOLDS.practiceAutoAdvanceMs}ms`;
-        panel.append(countdown);
-
-        const begin = node('button', 'btn btn-block', '바로 시작');
-        begin.type = 'button';
-        begin.dataset.action = 'begin';
-        begin.addEventListener('click', proceed, { signal });
-        panel.append(begin);
-
-        function proceed() {
-          finish({ level: chosen, retry: false, abort: false, recommendedLevel: recommended }, result);
-        }
-
-        rootEl.replaceChildren(panel);
-        autoTimer = setTimeout(proceed, THRESHOLDS.practiceAutoAdvanceMs);
+        const open = createHoldButton({
+          icon: '⚙', label: '교사용 안내 열기 (길게 누르기)', dataAttr: 'teacherOpen', signal, onHold: onTeacher,
+        });
+        wait.append(open.el);
+        rootEl.replaceChildren(wait);
       }
 
-      // ---- 교사 화면: 중단 안내 ----
-      // 학생 화면이 아니라 이 교사 화면에만 뜬다. 자동으로 넘어가지 않는다: 넘어갈 단계가 없다.
+      // 추천이 정해졌다: 학생에게는 글 없는 전환 화면. THRESHOLDS.practiceAutoAdvanceMs 뒤 추천 단계로 자동 진행한다
+      // (교사가 자리에 없어도 검사가 멈추지 않는다). 난이도를 바꾸려면 교사가 길게 눌러 패널을 연다.
+      // 패널을 열면 자동 진행을 멈춘다: 교사가 읽는 중에 화면이 넘어가면 쓸모가 없다. 패널의 "바로 시작"으로 진행한다.
+      function showRecommendation(recommended, result) {
+        showStudentWait({ glyph: theme.itemGlyph, countdown: true, onTeacher: openLevelPanel });
+        autoTimer = setTimeout(() => proceed(recommended), THRESHOLDS.practiceAutoAdvanceMs);
+
+        function proceed(level) {
+          finish({ level, retry: false, abort: false, recommendedLevel: recommended }, result);
+        }
+
+        function openLevelPanel() {
+          if (done) return;
+          if (autoTimer !== null) clearTimeout(autoTimer);
+          autoTimer = null;
+          let chosen = recommended;
+          const panel = node('main', 'teacher-screen practice-result');
+          panel.dataset.teacherView = '';
+          panel.dataset.screen = 'practice-result';
+          panel.append(node('h1', null, '난이도 선택'));
+          panel.append(node('p', 'text-muted', '선택한 단계로 검사를 시작합니다. 추천 단계가 골라져 있습니다.'));
+          const group = node('fieldset', 'setup-section');
+          group.append(node('legend', null, '난이도'));
+          const grid = node('div', 'choice-grid');
+          for (const id of Object.keys(LEVELS).map(Number)) {
+            const label = node('label', 'choice');
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'level';
+            input.value = String(id);
+            input.checked = id === recommended;
+            label.append(input, node('span', 'choice-text', id === recommended ? `${id}단계 (추천)` : `${id}단계`));
+            grid.append(label);
+          }
+          group.append(grid);
+          group.addEventListener('change', (event) => { chosen = Number(event.target.value); }, { signal });
+          panel.append(group);
+          const begin = node('button', 'btn btn-block', '바로 시작');
+          begin.type = 'button';
+          begin.dataset.action = 'begin';
+          begin.addEventListener('click', () => proceed(chosen), { signal });
+          panel.append(begin);
+          rootEl.replaceChildren(panel);
+        }
+      }
+
+      // 중단(재시도 후에도 정반응 1개 이하): 학생에게는 실패를 암시하지 않는 글 없는 끝 화면(마무리 그림)만 보인다.
+      // "지금은 검사가 어렵습니다"는 교사가 길게 눌러야 열린다. 자동으로 넘어가지 않는다: 넘어갈 단계가 없다.
       function showAbortNotice(result) {
-        exitFullscreen();
-        const panel = node('main', 'teacher-screen practice-result');
-        panel.dataset.teacherView = '';
-        panel.dataset.screen = 'practice-abort';
-        const notice = node('section', 'notice');
-        notice.dataset.teacherNotice = 'practice-abort';
-        notice.append(
-          node('p', 'notice-title', '지금은 검사가 어렵습니다'),
-          node('p', null, '연습에서 규칙을 익히는 데 어려움이 있었습니다. 오늘은 검사를 쉬고, 나중에 다시 시도해 주세요. 이 안내는 교사에게만 보입니다.'),
-        );
-        const back = node('button', 'btn btn-block', '처음으로');
-        back.type = 'button';
-        back.dataset.action = 'back';
-        back.addEventListener('click', () => {
-          finish({ level: null, retry: false, abort: true, recommendedLevel: null }, result);
-        }, { signal });
-        panel.append(notice, back);
-        rootEl.replaceChildren(panel);
+        showStudentWait({ glyph: theme.completionGlyph, countdown: false, onTeacher: openNotice });
+
+        function openNotice() {
+          if (done) return;
+          exitFullscreen();
+          const panel = node('main', 'teacher-screen practice-result');
+          panel.dataset.teacherView = '';
+          panel.dataset.screen = 'practice-abort';
+          const notice = node('section', 'notice');
+          notice.dataset.teacherNotice = 'practice-abort';
+          notice.append(
+            node('p', 'notice-title', '지금은 검사가 어렵습니다'),
+            node('p', null, '연습에서 규칙을 익히는 데 어려움이 있었습니다. 오늘은 검사를 쉬고, 나중에 다시 시도해 주세요.'),
+          );
+          const back = node('button', 'btn btn-block', '처음으로');
+          back.type = 'button';
+          back.dataset.action = 'back';
+          back.addEventListener('click', () => {
+            finish({ level: null, retry: false, abort: true, recommendedLevel: null }, result);
+          }, { signal });
+          panel.append(notice, back);
+          rootEl.replaceChildren(panel);
+        }
       }
 
       rootEl.append(view.el);

@@ -73,6 +73,49 @@ export function gridLayout(count) {
   return best;
 }
 
+// ---- 교사 제스처: 길게 누르기 ------------------------------------------------------------
+// 검사가 시작된 뒤에는 "교사 화면"이 따로 없다. 기기 하나를 학생이 들고 있고 교사는 자리를 비운다 — 세션 중 화면에 있는 것은
+// 모두 학생이 보는 것이다. 학생이 보면 안 되는 것(검사 중단, 난이도 조작, 교사용 안내)은 화면을 나누어서가 아니라
+// 교사만 할 수 있는 의도적인 제스처 뒤에 둔다: 구석의 이 버튼을 HOLD_MS(1초) 이상 길게 눌러야 동작한다.
+export const HOLD_MS = 1000;
+
+// 왼쪽 위 구석의 작고 흐린 버튼. 반응 영역(아래 절반 전체)과 겹치지 않고, 가로로 돌려도 반응 영역(오른쪽 절반) 밖이다.
+// 짧게 누르면 아무 일도 없다. 누르는 동안 안쪽이 차오른다(CSS). 글은 없다(아이콘 + 보조기기용 aria-label).
+// disabled(): true이면 눌러도 시작하지 않는다.
+export function createHoldButton({ icon, label, dataAttr, onHold, signal, holdMs = HOLD_MS, disabled = () => false }) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'abort-btn';
+  button.dataset[dataAttr] = '';
+  button.setAttribute('aria-label', label);
+  button.textContent = icon;
+  button.style.animationDuration = `${holdMs}ms`; // 채움 막대의 길이를 누름 시간과 한 곳에서 맞춘다
+
+  let timer = null;
+  function cancel() {
+    if (timer !== null) globalThis.clearTimeout(timer);
+    timer = null;
+    delete button.dataset.holding;
+  }
+
+  button.addEventListener('pointerdown', () => {
+    if (disabled()) return;
+    cancel(); // 떼지 않은 채 다시 눌러도 처음부터 센다
+    button.dataset.holding = 'true';
+    timer = globalThis.setTimeout(() => {
+      timer = null;
+      delete button.dataset.holding;
+      if (disabled()) return;
+      onHold();
+    }, holdMs);
+  }, { signal });
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+    button.addEventListener(type, cancel, { signal });
+  }
+  signal?.addEventListener('abort', cancel); // 화면을 떠나면 누르는 중이던 타이머도 거둔다
+  return { el: button, cancel };
+}
+
 // ---- 그림판 ---------------------------------------------------------------------------------
 function el(tag, className, attrs = {}) {
   const node = document.createElement(tag);

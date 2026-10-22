@@ -963,6 +963,16 @@ describe('채워지는 연출 (CSS)', () => {
     expect(body).not.toMatch(/position:\s*(?:absolute|fixed)/);
   });
 
+  // !important로 애니메이션 길이를 0.01ms로 줄이면 인라인 animation-duration도 덮인다. 그러면 길게 누르는 순간 채움 막대가 즉시 가득 차
+  // "완료된 것처럼" 보이고, 카운트다운 막대는 시작하자마자 끝난 것처럼 보인다. 그때는 채움 막대를 아예 그리지 않는다.
+  test('애니메이션 줄이기(OS·수동 둘 다)에서는 길게 누르기·카운트다운의 채움 막대를 그리지 않는다', () => {
+    const flat = css.replace(/\s+/g, ' ');
+    expect(flat).toContain('@media (prefers-reduced-motion: reduce) { .abort-btn[data-holding]::after, .countdown::after { display: none; } }');
+    expect(flat).toContain('html[data-reduced-motion="true"] .abort-btn[data-holding]::after, html[data-reduced-motion="true"] .countdown::after { display: none; }');
+    // 막대 없이도 누르는 중임이 보이게 테두리를 굵게 한다
+    expect(ruleBody('.abort-btn[data-holding] {')).toMatch(/border-width/);
+  });
+
   test('끝난 뒤 중단 버튼이 정말 사라진다: display 규칙이 hidden 속성을 이기지 않는다', () => {
     expect(ruleBody('.abort-btn[hidden] {')).toMatch(/display:\s*none/);
   });
