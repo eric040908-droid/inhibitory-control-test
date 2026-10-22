@@ -323,15 +323,47 @@ describe('내보내기', () => {
     expect(revoked).toEqual([]);
   });
 
-  test('unmount가 아직 해제되지 않은 URL을 해제하고, 예약된 타이머가 다시 해제하지 않는다', () => {
+  // 이전에는 unmount가 아직 해제되지 않은 URL을 곧바로 해제했다. 교사가 "내려받기를 시작했습니다"를 읽고 회차 줄을 누르면
+  // (이력 → 결과 화면) 일부 브라우저가 다운로드를 취소하는데, 교사는 받아졌다고 믿는다. 백업 파일은 유일한 보험이다.
+  test('unmount는 아직 해제되지 않은 URL을 해제하지 않는다 (내려받기가 끝나기 전에 화면을 떠나도 다운로드가 취소되지 않는다)', () => {
     vi.useFakeTimers();
     seedSessions([{ id: 'a' }]);
     mountHistory();
+    click(qs('[data-export="json"]'));
     click(qs('[data-export="csv"]'));
     screen.unmount();
-    expect(revoked).toEqual(['blob:mock/1']);
-    vi.advanceTimersByTime(60_000);
-    expect(revoked).toEqual(['blob:mock/1']);
+    expect(revoked).toEqual([]);
+  });
+
+  test('unmount는 해제 타이머를 거둔다 (화면이 없는데 타이머가 남지 않는다)', () => {
+    vi.useFakeTimers();
+    seedSessions([{ id: 'a' }]);
+    mountHistory();
+    click(qs('[data-export="json"]'));
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    screen.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('회차 줄을 눌러 나가는 실제 순서(내려받기 → 줄 탭 → 화면 교체)에서도 URL은 살아 있다', () => {
+    vi.useFakeTimers();
+    seedSessions([{ id: 'a' }]);
+    const { onOpenSession } = mountHistory({ onOpenSession: vi.fn(() => screen.unmount()) });
+    click(qs('[data-export="json"]'));
+    click(qs('[data-session-row="a"]'));
+    expect(onOpenSession).toHaveBeenCalledTimes(1);
+    expect(revoked).toEqual([]);
+  });
+
+  test('같은 화면을 다시 mount해도 이전 mount의 URL을 해제하지 않는다', () => {
+    vi.useFakeTimers();
+    seedSessions([{ id: 'a' }]);
+    const instance = createHistoryScreen({});
+    mountHistory({ screenInstance: instance });
+    click(qs('[data-export="json"]'));
+    document.body.replaceChildren();
+    mountHistory({ screenInstance: instance }); // 결과 화면에서 돌아올 때처럼 같은 인스턴스를 다시 mount
+    expect(revoked).toEqual([]);
   });
 
   test('내려받기를 시작했다고 알리고 파일 이름을 보여 준다', () => {
