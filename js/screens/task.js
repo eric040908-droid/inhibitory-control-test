@@ -11,7 +11,9 @@
 // 공통 배선(엔진, rAF 신원, 가려짐, 격자)은 trialRunner.js에 있다.
 import { LEVELS } from '../config.js';
 import { rewardCellCount } from '../themes.js';
-import { HOLD_MS, createHoldButton, createStudentView, createTrialRunner, exitFullscreen, requestFullscreen } from './trialRunner.js';
+import {
+  HOLD_MS, createHoldButton, createStudentView, createTrialRunner, exitFullscreen, lockViewportZoom, requestFullscreen,
+} from './trialRunner.js';
 
 // 중단 버튼을 이만큼(ms) 눌러야 동작한다. 학생이 우연히 누를 수 없게 하는 것이 목적이라 1초 이상이어야 한다.
 export const ABORT_HOLD_MS = HOLD_MS;
@@ -81,6 +83,7 @@ export function createTaskScreen(deps) {
 
       // 전체화면은 권장일 뿐이다. 거부되어도 그대로 진행한다.
       requestFullscreen();
+      const unlockZoom = lockViewportZoom();
       runner.start();
 
       teardown = () => {
@@ -91,6 +94,7 @@ export function createTaskScreen(deps) {
         if (completionTimer !== null) clearTimeout(completionTimer);
         completionTimer = null;
         runner.destroy();
+        unlockZoom();
         exitFullscreen();
       };
     },

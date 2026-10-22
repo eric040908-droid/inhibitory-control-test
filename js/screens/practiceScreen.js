@@ -25,7 +25,7 @@ import { LEVELS, PRACTICE, THRESHOLDS } from '../config.js';
 import { noGoGlyphFor, rewardCellCount } from '../themes.js';
 import { recommendLevel } from '../practice.js';
 import {
-  createHoldButton, createStudentView, createTrialRunner, exitFullscreen, requestFullscreen, rewardsCell,
+  createHoldButton, createStudentView, createTrialRunner, exitFullscreen, lockViewportZoom, requestFullscreen, rewardsCell,
 } from './trialRunner.js';
 
 // ---- 시범 연출 시간(ms) — 판정 기준이 아니라 연출이므로 여기 둔다 ------------------------------
@@ -124,6 +124,35 @@ export function createPracticeScreen(deps) {
         view.fillNextCell();
       }
 
+      // ---- 시범 중 화면이 가려질 때 ----
+      // 시범은 setTimeout 사슬이다. 화면이 가려져도(알림, 전화, 탭 전환) 그대로 흘러가거나, 백그라운드에서 타이머가 늦춰져 일그러진 채
+      // 재생된다. 시범은 글을 못 읽는 학생에게 규칙을 전하는 유일한 수단이라 학생이 놓치면 이어지는 연습이 규칙을 모르는 채 돌아가고,
+      // 추천은 1단계가 되거나 중단되어 잘못된 측정이 된다. 본 검사(trialRunner.js)가 가려짐에 멈추는 것과 같게 여기서도 멈춘다.
+      // 가려지면 시범을 멈추고 화면을 처음 상태로 되돌린 뒤, 돌아오면 처음부터 다시 보여 준다 — 중간부터 이으면 한 장면만 보게 된다.
+      let demoPhase = true;     // 시범이 끝나 연습이 시작되면 false. 그 뒤의 가려짐은 trialRunner가 맡는다
+      let demoPaused = false;
+
+      function resetDemoStage() {
+        for (const id of timers) clearTimeout(id);
+        timers.clear();
+        view.hideStimulus();
+        delete view.responseEl.dataset.demo;
+        view.resetGrid(cellCount); // 시범에서 채운 칸도 처음부터 다시 채워진다
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (!demoPhase || done) return;
+        if (document.visibilityState === 'hidden') {
+          if (demoPaused) return;
+          demoPaused = true;
+          resetDemoStage();
+        } else {
+          if (!demoPaused) return;
+          demoPaused = false;
+          playDemo();
+        }
+      }, { signal });
+
       function playDemo() {
         let t = DEMO.leadMs;
         for (const type of DEMO.items) {
@@ -157,6 +186,8 @@ export function createPracticeScreen(deps) {
 
       // ---- 연습 8문항 ----
       function startPractice() {
+        if (done) return;
+        demoPhase = false;
         hand.remove();
         view.resetGrid(cellCount); // 시범에서 채운 칸을 비우고 학생 차례로
         runner = createTrialRunner({
@@ -174,6 +205,7 @@ export function createPracticeScreen(deps) {
       }
 
       function finishPractice(responses) {
+        studentPhase = false;
         runner?.destroy();
         runner = null;
         const result = summarizePractice(responses, attempt);
@@ -234,6 +266,7 @@ export function createPracticeScreen(deps) {
 
         function openLevelPanel() {
           if (done) return;
+          unlockZoom();
           if (autoTimer !== null) clearTimeout(autoTimer);
           autoTimer = null;
           let chosen = recommended;
@@ -274,6 +307,7 @@ export function createPracticeScreen(deps) {
 
         function openNotice() {
           if (done) return;
+          unlockZoom();
           exitFullscreen();
           const panel = node('main', 'teacher-screen practice-result');
           panel.dataset.teacherView = '';
@@ -295,9 +329,37 @@ export function createPracticeScreen(deps) {
         }
       }
 
+      // ---- 시범·연습 중 교사의 중단 ----
+      // 시범과 8문항은 약 40초이고, 기기를 학생이 들고 있는 동안 교사가 멈출 수단이 없었다(대기 화면에만 길게 누르기 버튼이 있었다).
+      // 본 검사(task.js)와 같은 구석 버튼을 같은 길게 누르기(1초)로 둔다. 짧게 누르면 아무 일도 없고, 글은 없다.
+      // 중단하면 연습 중단과 같은 신호(abort)로 설정 화면에 돌아간다 — 회차는 저장하지 않는다(본 검사가 시작되지 않았다).
+      // 연습이 끝나 대기 화면으로 바뀌면 이 버튼은 화면과 함께 사라지고, 대기 화면의 교사 제스처 버튼이 그 자리를 맡는다.
+      let studentPhase = true;
+      const stop = createHoldButton({
+        icon: '⏹',
+        label: '연습 중단 (길게 누르기)',
+        dataAttr: 'abort',
+        signal,
+        disabled: () => done || !studentPhase,
+        onHold() {
+          // 시범 연출 타이머를 거두지 않으면 중단한 뒤에도 시범이 이어져 8문항이 시작된다.
+          for (const id of timers) clearTimeout(id);
+          timers.clear();
+          const responses = runner ? runner.abort() : []; // 시범 중이면 엔진이 아직 없다
+          runner?.destroy();
+          runner = null;
+          studentPhase = false;
+          exitFullscreen();
+          finish({ level: null, retry: false, abort: true, recommendedLevel: null }, summarizePractice(responses, attempt));
+        },
+      });
+      view.el.append(stop.el);
+
       rootEl.append(view.el);
       requestFullscreen(); // 권장일 뿐이다. 거부되어도 그대로 진행한다
-      playDemo();
+      const unlockZoom = lockViewportZoom(); // 학생 구간 동안만 잠근다. 교사용 패널이 열리면 풀어 준다(글이 있는 교사 화면이므로 확대할 수 있어야 한다)
+      if (document.visibilityState === 'hidden') demoPaused = true; // 가려진 채로 열렸으면 돌아온 뒤에 시작한다
+      else playDemo();
 
       teardown = () => {
         teardown = null;
@@ -309,6 +371,7 @@ export function createPracticeScreen(deps) {
         autoTimer = null;
         runner?.destroy();
         runner = null;
+        unlockZoom();
         // 전체화면은 닫지 않는다: 이어지는 본 검사가 같은 전체화면을 쓴다(사용자 제스처 없이는 다시 못 연다).
       };
     },

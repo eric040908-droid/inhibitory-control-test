@@ -526,6 +526,284 @@ describe('중단 상황: 학생에게는 글 없는 끝 화면, 안내는 길게
 });
 
 // ---- 전체화면, 정리 ---------------------------------------------------------------------------
+// ---- 시범 중 화면이 가려질 때 ----------------------------------------------------------------------------
+// 시범은 글을 못 읽는 학생에게 규칙을 전하는 유일한 수단이다. 가려진 동안 그대로 흘러가거나 백그라운드에서 일그러지면 학생은 규칙을
+// 놓친 채 연습을 하게 되고, 추천이 1단계가 되거나 중단되어 잘못된 측정이 된다. 본 검사처럼 멈추고, 돌아오면 처음부터 다시 보여 준다.
+describe('시범 중 화면이 가려질 때 (visibilitychange)', () => {
+  const setVisibility = (state) => {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+  afterEach(() => { delete document.visibilityState; });
+
+  test('가려지면 시범이 멈춘다: 그림이 사라지고, 칸이 비고, 타이머가 없고, 가려진 동안 소리도 나지 않는다', () => {
+    const { audio, createEngine } = mountPractice();
+    vi.advanceTimersByTime(DEMO.leadMs + DEMO.goPressAfterMs + 10); // 첫 Go 시범이 눌리고 칸이 하나 찼다
+    expect(filledCells()).toBe(1);
+    setVisibility('hidden');
+    expect(stimulusGlyph()).toBe('');
+    expect(filledCells()).toBe(0);
+    expect(responseArea().dataset.demo).toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+    const tones = audio.playStimulus.mock.calls.length;
+    const rewards = audio.playCorrect.mock.calls.length;
+    vi.advanceTimersByTime(10 * demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tones);
+    expect(audio.playCorrect).toHaveBeenCalledTimes(rewards);
+    expect(createEngine).not.toHaveBeenCalled(); // 시범이 흘러가 연습이 시작되지 않는다
+  });
+
+  test('돌아오면 처음부터 다시 보여 준다 (중간부터 잇지 않는다): 처음 장면과 같은 시각에 같은 일이 일어난다', () => {
+    const theme = getTheme('animal');
+    const { audio, createEngine } = mountPractice({ theme });
+    vi.advanceTimersByTime(DEMO.leadMs + DEMO.goPressAfterMs + 10); // 첫 시범을 반쯤 본 상태
+    setVisibility('hidden');
+    vi.advanceTimersByTime(30_000);
+    const tones = audio.playStimulus.mock.calls.length;
+    setVisibility('visible');
+    expect(stimulusGlyph()).toBe('');
+    vi.advanceTimersByTime(DEMO.leadMs - 1);
+    expect(stimulusGlyph()).toBe('');
+    vi.advanceTimersByTime(1);
+    expect(stimulusGlyph()).toBe(theme.goGlyph);                      // 첫 그림부터
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tones + 1);
+    vi.advanceTimersByTime(DEMO.goPressAfterMs);
+    expect(responseArea().dataset.demo).toBe('press');
+    expect(filledCells()).toBe(1);                                     // 칸도 처음부터 다시 찬다
+    expect(createEngine).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(demoDuration());                            // 전체 시범을 다시 본 뒤에야 연습이 시작된다
+    expect(createEngine).toHaveBeenCalledTimes(1);
+  });
+
+  test('시범은 전부 다시 재생된다: 시범 항목 수만큼의 소리가 두 번째에도 난다', () => {
+    const { audio } = mountPractice();
+    vi.advanceTimersByTime(demoDuration() - 1);
+    setVisibility('hidden');
+    const tones = audio.playStimulus.mock.calls.length;
+    setVisibility('visible');
+    vi.advanceTimersByTime(demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tones + DEMO.items.length);
+  });
+
+  test('여러 번 가려졌다 돌아와도 시범이 겹쳐 돌지 않는다', () => {
+    const { audio, createEngine } = mountPractice();
+    for (let i = 0; i < 4; i += 1) {
+      vi.advanceTimersByTime(DEMO.leadMs + 50);
+      setVisibility('hidden');
+      setVisibility('hidden'); // 가려짐 이벤트가 겹쳐 와도
+      setVisibility('visible');
+      setVisibility('visible');
+    }
+    const tones = audio.playStimulus.mock.calls.length;
+    vi.advanceTimersByTime(demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tones + DEMO.items.length);
+    expect(createEngine).toHaveBeenCalledTimes(1);
+  });
+
+  test('가려진 적이 없으면 visible 이벤트가 와도 시범을 다시 시작하지 않는다', () => {
+    const { audio } = mountPractice();
+    vi.advanceTimersByTime(DEMO.leadMs + 10);
+    const tones = audio.playStimulus.mock.calls.length;
+    setVisibility('visible');
+    vi.advanceTimersByTime(demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(DEMO.items.length);
+    expect(tones).toBe(1);
+  });
+
+  test('가려진 채로 열리면 돌아온 뒤에 시범을 시작한다', () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const { audio, createEngine } = mountPractice();
+    vi.advanceTimersByTime(10 * demoDuration());
+    expect(audio.playStimulus).not.toHaveBeenCalled();
+    expect(createEngine).not.toHaveBeenCalled();
+    setVisibility('visible');
+    vi.advanceTimersByTime(demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(DEMO.items.length);
+    expect(createEngine).toHaveBeenCalledTimes(1);
+  });
+
+  test('시범이 끝나 연습이 시작된 뒤의 가려짐은 시범을 되살리지 않고 엔진이 멈춘다 (본 검사와 같다)', () => {
+    const { audio } = mountPractice();
+    skipDemo();
+    const tones = audio.playStimulus.mock.calls.length;
+    setVisibility('hidden');
+    expect(engine.pause).toHaveBeenCalledTimes(1);
+    setVisibility('visible');
+    expect(engine.resume).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tones); // 시범이 다시 돌지 않았다
+    expect(qs('[data-demo-hand]')).toBeNull();
+  });
+
+  test('화면을 떠난 뒤의 가려짐·복귀에는 반응하지 않는다', () => {
+    const { audio } = mountPractice();
+    vi.advanceTimersByTime(DEMO.leadMs + 10);
+    screen.unmount();
+    const tones = audio.playStimulus.mock.calls.length;
+    setVisibility('hidden');
+    setVisibility('visible');
+    vi.advanceTimersByTime(demoDuration());
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tones);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('시범을 다시 보여 줄 때도 학생 화면에는 문장이 없다', () => {
+    mountPractice();
+    setVisibility('hidden');
+    setVisibility('visible');
+    for (let t = 0; t < demoDuration(); t += 200) {
+      expect(studentText(), `t=${t}`).toMatch(EMOJI_ONLY);
+      vi.advanceTimersByTime(200);
+    }
+  });
+});
+
+// ---- 시범·연습 중 교사의 중단 --------------------------------------------------------------------------
+// 시범 + 8문항은 약 40초인데, 기기를 학생이 들고 있는 동안 교사가 멈출 수단이 없었다. 본 검사와 같은 구석 버튼(길게 누르기)을 둔다.
+describe('시범·연습 중 교사의 중단 (길게 누르기)', () => {
+  const stopButton = () => qs('[data-abort]');
+  const holdStop = (ms = HOLD_MS) => {
+    stopButton().dispatchEvent(pointerEvent('pointerdown'));
+    vi.advanceTimersByTime(ms);
+    stopButton()?.dispatchEvent(pointerEvent('pointerup'));
+  };
+  const abortSignal = { level: null, retry: false, abort: true, recommendedLevel: null };
+
+  test('시범 중에도, 연습 8문항 중에도 구석에 중단 버튼이 있고 글이 없다', () => {
+    mountPractice();
+    expect(stopButton()).not.toBeNull();
+    expect(stopButton().textContent).toMatch(EMOJI_ONLY);
+    expect(stopButton().getAttribute('aria-label')).toMatch(/길게/);
+    expect(studentText()).toMatch(EMOJI_ONLY);
+    skipDemo();
+    expect(stopButton()).not.toBeNull();
+    expect(studentText()).toMatch(EMOJI_ONLY);
+  });
+
+  test('시범 중에 1초 길게 누르면 연습을 중단하고 설정으로 돌아가는 신호(abort)를 보낸다. 엔진은 만들어지지 않는다', () => {
+    const { onDone, createEngine, audio } = mountPractice();
+    vi.advanceTimersByTime(DEMO.leadMs + 100);
+    holdStop();
+    const tonesSoFar = audio.playStimulus.mock.calls.length; // 누르는 1초 동안 시범이 진행된 몫은 센다
+    const rewardsSoFar = audio.playCorrect.mock.calls.length;
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).toEqual(abortSignal);
+    expect(vi.getTimerCount()).toBe(0); // 시범 연출이 이어지지 않는다
+    vi.advanceTimersByTime(60000);
+    expect(createEngine).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(audio.playStimulus).toHaveBeenCalledTimes(tonesSoFar); // 중단 뒤에는 소리도 나지 않는다
+    expect(audio.playCorrect).toHaveBeenCalledTimes(rewardsSoFar);
+  });
+
+  test('연습 8문항 중에 길게 누르면 엔진을 중단하고 abort를 보낸다', () => {
+    const { onDone } = mountPractice();
+    skipDemo();
+    holdStop();
+    expect(engine.abort).toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).toEqual(abortSignal);
+    expect(onDone.mock.calls[0][1]).toMatchObject({ attempt: 1, goTrials: PRACTICE.go, noGoTrials: PRACTICE.noGo });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('짧게 누르면 아무 일도 없다 (1초 미만, 그리고 click)', () => {
+    const { onDone } = mountPractice();
+    skipDemo();
+    holdStop(HOLD_MS - 1);
+    click(stopButton());
+    vi.advanceTimersByTime(5000);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(engine.abort).not.toHaveBeenCalled();
+  });
+
+  test('누르다 떼면 처음부터 다시 센다', () => {
+    const { onDone } = mountPractice();
+    skipDemo();
+    holdStop(HOLD_MS - 100);
+    holdStop(HOLD_MS - 100);
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  test('학생의 반응 영역 입력은 중단 버튼에 닿지 않는다 (반응 영역 밖 구석)', () => {
+    mountPractice();
+    skipDemo();
+    expect(responseArea().contains(stopButton())).toBe(false);
+  });
+
+  test('연습이 끝나 대기 화면으로 넘어가면 이 버튼은 사라지고 교사 제스처 버튼만 남는다', () => {
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    expect(stopButton()).toBeNull();
+    expect(teacherButton()).not.toBeNull();
+    expectWordlessStudentState();
+  });
+
+  test('화면을 떠나면 누르던 중이던 타이머도 사라진다 (떠난 뒤 onDone이 불리지 않는다)', () => {
+    const { onDone } = mountPractice();
+    skipDemo();
+    stopButton().dispatchEvent(pointerEvent('pointerdown'));
+    screen.unmount();
+    vi.advanceTimersByTime(HOLD_MS * 3);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+// index.html의 viewport meta는 확대를 막지 않는다(교사 화면은 확대할 수 있어야 한다). 학생이 보는 연습 구간은 meta를 잠가
+// 교사가 앞 화면에서 확대해 둔 채 시작해도 확대되어 뜨지 않게 하고, 글이 있는 교사용 패널이 열리면 다시 풀어 준다.
+describe('확대 잠금', () => {
+  const OPEN = 'width=device-width, initial-scale=1';
+  let meta;
+  beforeEach(() => {
+    meta = document.createElement('meta');
+    meta.name = 'viewport';
+    meta.content = OPEN;
+    document.head.append(meta);
+  });
+  afterEach(() => { meta.remove(); });
+
+  test('시범과 8문항 내내 잠겨 있고, 화면을 떠나면 원래대로 돌아간다', () => {
+    mountPractice();
+    expect(meta.content).toMatch(/user-scalable=no/);
+    skipDemo();
+    expect(meta.content).toMatch(/maximum-scale=1/);
+    screen.unmount();
+    expect(meta.content).toBe(OPEN);
+  });
+
+  test('학생이 보는 전환 화면(추천 확정)에서도 잠겨 있다', () => {
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    expect(meta.content).toMatch(/user-scalable=no/);
+  });
+
+  test('교사용 난이도 패널이 열리면 풀린다 (글이 있는 교사 화면은 확대할 수 있어야 한다)', () => {
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    holdTeacher();
+    expect(qs('[data-screen="practice-result"]')).not.toBeNull();
+    expect(meta.content).toBe(OPEN);
+  });
+
+  test('교사용 중단 안내가 열려도 풀린다', () => {
+    mountPractice({ attempt: PRACTICE.maxRetries + 1 });
+    finishPractice(responsesFor({ hits: PRACTICE.abortMaxHits, rejections: 0 }));
+    expect(meta.content).toMatch(/user-scalable=no/);
+    holdTeacher();
+    expect(qs('[data-screen="practice-abort"]')).not.toBeNull();
+    expect(meta.content).toBe(OPEN);
+  });
+
+  test('패널에서 풀린 뒤 화면을 떠나도 meta는 원래 값 그대로다 (두 번 복원해도 틀어지지 않는다)', () => {
+    mountPractice();
+    finishPractice(responsesFor({ hits: 4, rejections: 2 }));
+    holdTeacher();
+    screen.unmount();
+    expect(meta.content).toBe(OPEN);
+  });
+});
+
 describe('전체화면과 정리', () => {
   test('전체화면을 요청하되 거부되어도 그대로 진행한다', async () => {
     document.documentElement.requestFullscreen = vi.fn(() => Promise.reject(new Error('denied')));

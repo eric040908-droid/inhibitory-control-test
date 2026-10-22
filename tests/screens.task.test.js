@@ -890,6 +890,54 @@ describe('전체화면', () => {
   });
 });
 
+// 학생 화면이 확대되거나 스크롤되면 반응 영역(하단 절반)과 자극이 원래 자리에 없다. index.html의 meta는 더는 확대를 막지 않으므로
+// (교사 화면은 확대할 수 있어야 한다) 학생 화면이 스스로 막는다: CSS의 touch-action: none이 핀치와 스크롤을 막고, 교사가 앞 화면에서
+// 확대해 둔 채로 시작을 눌러도 학생 화면이 확대되어 뜨지 않도록 화면이 떠 있는 동안 meta를 잠근다.
+describe('확대·스크롤 잠금 (학생 화면)', () => {
+  const OPEN = 'width=device-width, initial-scale=1';
+  let meta;
+  beforeEach(() => {
+    meta = document.createElement('meta');
+    meta.name = 'viewport';
+    meta.content = OPEN;
+    document.head.append(meta);
+  });
+  afterEach(() => { meta.remove(); });
+
+  test('검사 화면이 떠 있는 동안 viewport meta가 확대를 막고, 화면을 떠나면 원래대로 돌아간다', () => {
+    mountTask();
+    expect(meta.content).toMatch(/maximum-scale=1/);
+    expect(meta.content).toMatch(/user-scalable=no/);
+    screen.unmount();
+    expect(meta.content).toBe(OPEN);
+  });
+
+  test('다시 mount하면 다시 잠그고, 이어서 unmount하면 다시 푼다', () => {
+    mountTask(); screen.unmount();
+    mountTask();
+    expect(meta.content).toMatch(/user-scalable=no/);
+    screen.unmount();
+    expect(meta.content).toBe(OPEN);
+  });
+
+  test('viewport meta가 없는 문서에서도 던지지 않는다', () => {
+    meta.remove();
+    expect(() => { mountTask(); screen.unmount(); }).not.toThrow();
+    document.head.append(meta);
+  });
+
+  test('css: 학생 화면은 핀치·스크롤을 받지 않는다 (touch-action: none, overflow: hidden, 화면 높이 그대로)', () => {
+    const css = read('css/app.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const selector of ['.test-screen', '.wait-screen']) {
+      const block = css.match(new RegExp(`(?:^|\\n)${selector.replace('.', '\\.')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+      expect(block, selector).toMatch(/touch-action:\s*none/);
+      expect(block, selector).toMatch(/overflow:\s*hidden/);
+      expect(block, selector).toMatch(/overscroll-behavior:\s*none/);
+      expect(block, selector).toMatch(/height:\s*100dvh/);
+    }
+  });
+});
+
 describe('unmount가 모든 것을 거둔다', () => {
   test('엔진을 중단하고, 남은 타이머가 없다', () => {
     const { engine } = mountTask();

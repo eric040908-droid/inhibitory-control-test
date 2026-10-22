@@ -33,6 +33,34 @@ export function rewardsCell(response) {
   return response.rtMs === null;
 }
 
+// ---- 확대 잠금 ------------------------------------------------------------------------------
+// index.html의 viewport meta는 확대를 막지 않는다: 결과·이력 화면은 어른이 폰으로 읽는 글이 많은 화면이라 확대할 수 있어야 한다
+// (WCAG 1.4.4). 학생 화면은 반대다 — 반응 영역이 화면의 절반이고 자극이 정해진 크기로 보여야 한다. 학생 화면 자체는 CSS의
+// touch-action: none이 핀치를 막지만, 교사가 앞 화면(결과·설정)에서 확대한 채로 시작을 누르면 학생 화면이 확대된 채로 뜨고
+// 학생은 되돌릴 수 없다. 그래서 학생 화면이 떠 있는 동안만 meta를 잠가(maximum-scale=1, user-scalable=no) 확대를 막고 이미 된
+// 확대도 1로 되돌리게 하고, 화면을 떠나면 원래 meta로 돌려놓는다. 반환값을 부르면 복원한다. meta가 없으면 아무 일도 하지 않는다.
+// (iOS Safari는 user-scalable=no를 무시하므로 그쪽은 CSS의 touch-action에 기댄다 — 이전과 같다.)
+export const VIEWPORT_LOCKED = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+
+export function lockViewportZoom(doc = document) {
+  try {
+    const meta = doc.querySelector('meta[name="viewport"]');
+    if (!meta) return () => {};
+    const before = meta.getAttribute('content');
+    meta.setAttribute('content', VIEWPORT_LOCKED);
+    return () => {
+      try {
+        if (before === null) meta.removeAttribute('content');
+        else meta.setAttribute('content', before);
+      } catch {
+        // 복원하지 못해도 화면 이동은 막지 않는다.
+      }
+    };
+  } catch {
+    return () => {};
+  }
+}
+
 // ---- 전체화면 -------------------------------------------------------------------------------
 // 권장하되 강제하지 않는다: 거부되거나(사용자 제스처 밖) 지원하지 않아도 그대로 진행한다.
 export function requestFullscreen(doc = document) {

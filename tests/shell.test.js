@@ -26,10 +26,12 @@ function blockOf(source, header) {
 }
 
 describe('index.html', () => {
-  test('viewport meta가 확대를 막는다', () => {
-    expect(html).toContain(
-      '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">',
-    );
+  // 확대 잠금은 학생 화면에만 걸린다(trialRunner.js의 lockViewportZoom). 결과·이력 화면은 어른이 폰으로 읽는 글이 많은 화면이라
+  // 확대할 수 있어야 한다(WCAG 1.4.4). 학생 화면이 확대되거나 스크롤되지 않는 것은 아래 CSS 테스트와 screens.task/practice 테스트가 고정한다.
+  test('viewport meta는 확대를 막지 않는다 (교사 화면은 확대할 수 있어야 한다)', () => {
+    expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
+    expect(html).not.toMatch(/user-scalable/);
+    expect(html).not.toMatch(/maximum-scale/);
   });
 
   test('한국어 문서이고 UTF-8이다', () => {
