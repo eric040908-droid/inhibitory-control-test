@@ -12,6 +12,10 @@
 //   4. markStimulusRendered에는 문항 신원이 없다. 묵은 rAF 콜백이 다음 문항에 떨어지지 않게, 문항이 바뀔 때 보류 중인
 //      rAF를 취소하고, 콜백 안에서도 "지금 떠 있는 문항이 예약한 문항인지" 확인한다.
 //   5. 오반응에는 아무 일도 일어나지 않는다. 소리도 표시도 없다. 칸이 채워지지 않을 뿐이다.
+//   5-1. 문항마다 자극 제시음을 내지 않는다(스펙 §7 "소리에 대한 결정"). 자극과 동시에 울리는 소리는 반응을 빠르게 만들고,
+//        No-Go 문항에서는 "무언가 일어났다"는 추가 신호가 되어 조급 반응과 억제 실패를 둘 다 늘린다 — 이 도구의 핵심 지표 둘이다.
+//        이 실행기는 본 검사와 연습 8문항이 함께 쓰므로 둘 다 소리가 없다(연습 결과가 본 검사 난이도를 정하므로 같은 조건이어야 한다).
+//        소리는 연습 시범(practiceScreen.js)과, 반응 뒤에 나는 보상음(onTrialComplete)뿐이다. 보상음은 그 문항의 측정에 영향이 없다.
 //   6. 반응 입력은 pointerdown이다(click은 터치에서 지연이 붙는다).
 //   7. 움직임은 CSS 애니메이션 클래스로만 만든다 — element.animate()(WAAPI)는 CSS의 애니메이션 끄기가 막지 못한다.
 import { THRESHOLDS } from '../config.js';
@@ -271,7 +275,6 @@ export function createTrialRunner({ view, audio, createEngine, theme, level, tri
           engine.markStimulusRendered(clock.now());
         });
       });
-      audio.playStimulus();
     },
     onStimulusEnd() {
       hideStimulus();

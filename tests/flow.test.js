@@ -114,6 +114,69 @@ describe('회차 저장', () => {
     expect(onSessionEnd).toHaveBeenCalledWith(session, { ok: true });
   });
 
+  // 스펙 §5.9 측정 조건: 소리와 애니메이션 줄이기는 교사가 탭 한 번으로 바꾸는 설정이라, 같은 학생·같은 기기의 회차 간 비교를 흔들 수 있다.
+  describe('소리·애니메이션 설정을 회차에 남긴다', () => {
+    const settingsOf = (prefs, setup = { ...SETUP, levelOverride: 2 }) => {
+      const saveSession = vi.fn(() => ({ ok: true }));
+      const { last } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}), readPrefs: () => prefs }, setup);
+      last().params.onFinish([]);
+      return saveSession.mock.calls[0][0].settings;
+    };
+
+    test('네 가지 조합이 그대로 저장된다', () => {
+      expect(settingsOf({ sound: true, reducedMotion: false })).toEqual({ sound: true, reducedMotion: false });
+      expect(settingsOf({ sound: false, reducedMotion: false })).toEqual({ sound: false, reducedMotion: false });
+      expect(settingsOf({ sound: true, reducedMotion: true })).toEqual({ sound: true, reducedMotion: true });
+      expect(settingsOf({ sound: false, reducedMotion: true })).toEqual({ sound: false, reducedMotion: true });
+    });
+
+    test('중단한 회차에도 남는다', () => {
+      const saveSession = vi.fn(() => ({ ok: true }));
+      const { last } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}), readPrefs: () => ({ sound: false, reducedMotion: true }) });
+      last().params.onAbort([]);
+      expect(saveSession.mock.calls[0][0].settings).toEqual({ sound: false, reducedMotion: true });
+    });
+
+    test('연습을 거친 회차에도 남는다', () => {
+      const saveSession = vi.fn(() => ({ ok: true }));
+      const { last } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}), readPrefs: () => ({ sound: false, reducedMotion: false }) });
+      last().params.onFinish([]);
+      expect(saveSession.mock.calls[0][0].settings).toEqual({ sound: false, reducedMotion: false });
+    });
+
+    test('설정 화면이 저장한 실제 선택(localStorage의 prefs 키)을 읽는다', () => {
+      localStorage.setItem('inhibitoryControlTest.prefs', JSON.stringify({ sound: false, reducedMotion: true }));
+      try {
+        const saveSession = vi.fn(() => ({ ok: true }));
+        const { last } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}) }, { ...SETUP, levelOverride: 2 });
+        last().params.onFinish([]);
+        expect(saveSession.mock.calls[0][0].settings).toEqual({ sound: false, reducedMotion: true });
+      } finally {
+        localStorage.removeItem('inhibitoryControlTest.prefs');
+      }
+    });
+
+    test('아무것도 저장된 적 없으면 기본값(소리 켜짐, 애니메이션 줄이기 꺼짐)이 저장된다 — 빈 값이 아니다', () => {
+      localStorage.removeItem('inhibitoryControlTest.prefs');
+      const saveSession = vi.fn(() => ({ ok: true }));
+      const { last } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}) }, { ...SETUP, levelOverride: 2 });
+      last().params.onFinish([]);
+      expect(saveSession.mock.calls[0][0].settings).toEqual({ sound: true, reducedMotion: false });
+    });
+
+    test('저장소에서 실제로 다시 읽어도 남아 있다', () => {
+      localStorage.setItem('inhibitoryControlTest.prefs', JSON.stringify({ sound: false, reducedMotion: false }));
+      try {
+        const { last, onSessionEnd } = startAndFinish({}, { ...SETUP, levelOverride: 2 });
+        last().params.onFinish([]);
+        last().params.onCompleted();
+        expect(getSession(onSessionEnd.mock.calls[0][0].id).settings).toEqual({ sound: false, reducedMotion: false });
+      } finally {
+        localStorage.removeItem('inhibitoryControlTest.prefs');
+      }
+    });
+  });
+
   test('연습 결과는 회차에 추천 근거로 함께 저장된다 (추천값과 교사가 고른 값 모두)', () => {
     const saveSession = vi.fn(() => ({ ok: true }));
     const { last } = startAndFinish(

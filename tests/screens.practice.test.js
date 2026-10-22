@@ -175,6 +175,21 @@ describe('규칙 시범 (글 없음)', () => {
     expect(filledCells()).toBe(0);
   });
 
+  test('시범에서는 그림이 나올 때 소리가 난다 (글 없이 규칙을 전하는 수단): 시범 항목 수만큼', () => {
+    const { audio } = mountPractice();
+    skipDemo();
+    expect(audio.playStimulus).toHaveBeenCalledTimes(DEMO.items.length);
+  });
+
+  test('시범이 끝난 뒤 연습 8문항에서는 자극 제시음이 나지 않는다 (연습 결과가 본 검사 단계를 정하므로 같은 조건이다)', () => {
+    const { audio } = mountPractice();
+    skipDemo();
+    const demoTones = audio.playStimulus.mock.calls.length;
+    hooks.onStimulus({ index: 0, type: 'go' });
+    hooks.onStimulus({ index: 1, type: 'nogo' });
+    expect(audio.playStimulus).toHaveBeenCalledTimes(demoTones);
+  });
+
   test('시범에서 소리는 정답 소리 하나뿐이다 (오반응 소리가 없다)', () => {
     const { audio } = mountPractice();
     skipDemo();

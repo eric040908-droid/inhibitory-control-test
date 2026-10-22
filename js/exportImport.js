@@ -10,15 +10,19 @@ import { validationError } from './storage.js';
 export const BACKUP_SCHEMA = 1;
 
 // ---- CSV -------------------------------------------------------------------
-// 열 순서는 분석 스크립트가 의존하므로 바꾸지 않는다. 학생 식별은 별칭(student_alias)뿐이다.
+// 열 순서는 분석 스크립트가 의존하므로 바꾸지 않는다(새 열은 맨 뒤에 더한다). 학생 식별은 별칭(student_alias)뿐이다.
 const CSV_COLUMNS = [
   'student_alias', 'session_id', 'started_at', 'tool_version', 'level', 'theme_id', 'length', 'trial_count', 'complete',
   'trial_index', 'trial_type', 'rt_ms', 'outcome', 'anticipatory', 'extra_taps', 'invalid',
   'device_kind', 'screen_w', 'screen_h', 'refresh_hz_est', 'browser', 'input_kind',
+  'sound', 'reduced_motion',
 ];
 
 // RFC 4180은 줄 끝을 CRLF로 정한다. 값 안의 줄바꿈은 따옴표로 감싸 그대로 둔다.
 const CSV_EOL = '\r\n';
+
+// 설정 칸: 켜짐 1, 꺼짐 0. 이 열이 생기기 전의 회차(가져온 옛 자료)는 알 수 없으므로 빈 칸이다 — 0(꺼짐)으로 쓰면 "소리 없이 했다"는 거짓 자료가 된다.
+const flag = (value) => (typeof value === 'boolean' ? (value ? 1 : 0) : null);
 
 // 값 없음(null/undefined)은 빈 칸이다. "null"이라는 글자를 쓰면 R·pandas가 문자열로 읽어 숫자 열이 깨진다.
 function csvCell(value) {
@@ -59,6 +63,7 @@ export function toTrialCsv(sessions) {
   const lines = [CSV_COLUMNS.join(',')];
   for (const session of sessions) {
     const device = session.device ?? {};
+    const settings = session.settings ?? {};
     const responses = Array.isArray(session.responses) ? session.responses : [];
     for (const r of responses) {
       const row = [
@@ -66,6 +71,7 @@ export function toTrialCsv(sessions) {
         session.level, session.themeId, session.length, session.trialCount, session.complete ? 1 : 0,
         r.index, r.type, r.rtMs, outcomeOf(r), isAnticipatory(r) ? 1 : 0, r.extraTaps, r.invalid ? 1 : 0,
         device.kind, device.screenW, device.screenH, device.refreshHzEst, device.browser, device.inputKind,
+        flag(settings.sound), flag(settings.reducedMotion),
       ];
       lines.push(row.map(csvCell).join(','));
     }

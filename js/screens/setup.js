@@ -16,6 +16,7 @@ import { THEMES } from '../themes.js';
 import { isAvailable, lastSetup, listStudents, saveLastSetup } from '../storage.js';
 import { measureRefreshHz } from '../deviceInfo.js';
 import * as pin from '../pin.js';
+import { readPrefs, writePrefs } from '../prefs.js';
 
 // ---- 선택지 ------------------------------------------------------------------------------
 // 값은 TRIAL_COUNTS의 키와 같아야 한다(tests가 고정한다). 글자만 여기서 붙인다.
@@ -61,34 +62,8 @@ function shortageLead(level, worst) {
   return `이 조합은 참아야 하는 그림이 약 ${n}개로, 억제 지표를 해석하는 데 필요한 ${need}개에 부족합니다. 결과의 억제 지표는 참고용으로만 표시됩니다.`;
 }
 
-// ---- 소리·애니메이션 선택의 보관 ------------------------------------------------------------
-// 회차 자료(storage.js)와 키를 따로 쓴다: 선택 저장이 회차 자료의 상태에 걸려 막히거나, 거꾸로 회차 자료를 건드리지 않게.
-// 저장소가 막혀 있어도 던지지 않는다 — 이번 화면에서만 효과가 나고 다음에 유지되지 않을 뿐이다.
-const PREFS_KEY = 'inhibitoryControlTest.prefs';
-const DEFAULT_PREFS = { sound: true, reducedMotion: false };
-
-function readPrefs() {
-  try {
-    const parsed = JSON.parse(globalThis.localStorage.getItem(PREFS_KEY));
-    const prefs = { ...DEFAULT_PREFS };
-    if (parsed && typeof parsed === 'object') {
-      if (typeof parsed.sound === 'boolean') prefs.sound = parsed.sound;
-      if (typeof parsed.reducedMotion === 'boolean') prefs.reducedMotion = parsed.reducedMotion;
-    }
-    return prefs;
-  } catch {
-    return { ...DEFAULT_PREFS };
-  }
-}
-
-function writePrefs(prefs) {
-  try {
-    globalThis.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch {
-    // 저장 못 해도 이번 화면의 선택은 이미 반영됐다.
-  }
-}
-
+// ---- 소리·애니메이션 선택 ------------------------------------------------------------------
+// 보관(localStorage의 별도 키)은 js/prefs.js가 맡는다 — flow.js가 같은 값을 회차에 남기기 때문이다.
 // 켜짐이면 html[data-reduced-motion="true"], 꺼짐이면 속성 자체를 지운다(css는 ="true"만 본다).
 // unmount에서 되돌리지 않는다 — 이 선택은 검사 화면까지 이어져야 한다.
 function applyReducedMotion(on) {
@@ -344,7 +319,7 @@ export function createSetupScreen(deps) {
       children.push(fieldset(
         '소리와 화면',
         soundBox,
-        h('p', { class: 'text-muted', text: '그림이 나올 때와 맞게 했을 때 짧은 소리가 납니다.' }),
+        h('p', { class: 'text-muted', text: '규칙을 보여 주는 연습 시범과, 맞게 했을 때 짧은 소리가 납니다. 검사 중 그림이 나오는 순간에는 소리가 나지 않습니다.' }),
         motionBox,
         h('p', { class: 'text-muted', text: '화면의 움직임을 거의 없앱니다. 기기에서 이미 움직임 줄이기를 켜 두었다면 이 선택과 관계없이 줄어듭니다.' }),
       ));

@@ -24,6 +24,7 @@ function sessionFixture(partial = {}) {
     responses,
     practice: { hits: 5, rejections: 3 },
     device: { kind: 'tablet', screenW: 1024, screenH: 768, dpr: 2, browser: 'Chrome', inputKind: 'touch', refreshHzEst: 60 },
+    settings: { sound: true, reducedMotion: false },
     toolVersion: TOOL_VERSION,
     ...partial,
   };
@@ -66,6 +67,7 @@ const EXPECTED_HEADER = [
   'student_alias', 'session_id', 'started_at', 'tool_version', 'level', 'theme_id', 'length',
   'trial_count', 'complete', 'trial_index', 'trial_type', 'rt_ms', 'outcome', 'anticipatory', 'extra_taps', 'invalid',
   'device_kind', 'screen_w', 'screen_h', 'refresh_hz_est', 'browser', 'input_kind',
+  'sound', 'reduced_motion',
 ];
 
 // ---- 브리프 테스트 (그대로) ----------------------------------------------------
@@ -156,6 +158,7 @@ describe('toTrialCsv 형식', () => {
       level: '2', theme_id: 'animals', length: 'short', trial_count: '1', complete: '1',
       trial_index: '7', trial_type: 'go', rt_ms: '512', outcome: 'hit', anticipatory: '0', extra_taps: '2', invalid: '0',
       device_kind: 'tablet', screen_w: '1024', screen_h: '768', refresh_hz_est: '60', browser: 'Chrome', input_kind: 'touch',
+      sound: '1', reduced_motion: '0',
     });
   });
 
@@ -221,6 +224,47 @@ describe('toTrialCsv 형식', () => {
     const csv = toTrialCsv([sessionFixture({ responses: [go(500, { invalid: true }), go(500)] })]);
     const flags = parseCsv(csv).slice(1).map((r) => r[columnIndex(csv, 'invalid')]);
     expect(flags).toEqual(['1', '0']);
+  });
+});
+
+describe('toTrialCsv 측정 조건: 소리·애니메이션 줄이기 (스펙 §5.9)', () => {
+  test('두 열이 기존 열 뒤에 붙는다 (기존 열의 위치는 바뀌지 않는다)', () => {
+    const header = headerOf(toTrialCsv([sessionFixture()]));
+    expect(header.slice(-2)).toEqual(['sound', 'reduced_motion']);
+    expect(header.indexOf('input_kind')).toBe(header.length - 3);
+    expect(header.indexOf('student_alias')).toBe(0);
+  });
+
+  test('네 가지 조합이 1/0으로 나온다 (complete·invalid 열과 같은 표기)', () => {
+    for (const [sound, reducedMotion] of [[true, false], [false, false], [true, true], [false, true]]) {
+      const csv = toTrialCsv([sessionFixture({ settings: { sound, reducedMotion } })]);
+      expect(cell(csv, 1, 'sound'), `${sound}/${reducedMotion}`).toBe(sound ? '1' : '0');
+      expect(cell(csv, 1, 'reduced_motion'), `${sound}/${reducedMotion}`).toBe(reducedMotion ? '1' : '0');
+    }
+  });
+
+  test('모든 문항 줄에 같은 값이 들어간다', () => {
+    const csv = toTrialCsv([sessionFixture({ trialCount: 3, settings: { sound: false, reducedMotion: true } })]);
+    for (const n of [1, 2, 3]) {
+      expect(cell(csv, n, 'sound')).toBe('0');
+      expect(cell(csv, n, 'reduced_motion')).toBe('1');
+    }
+  });
+
+  test('설정이 기록되지 않은 옛 회차는 빈 칸이다 (0으로 쓰면 "소리 없이 했다"는 거짓 자료가 된다)', () => {
+    const s = sessionFixture();
+    delete s.settings;
+    const csv = toTrialCsv([s]);
+    expect(cell(csv, 1, 'sound')).toBe('');
+    expect(cell(csv, 1, 'reduced_motion')).toBe('');
+    expect(parseCsvRow(csv)).toHaveLength(headerLength(csv));
+    expect(csv).not.toContain('undefined');
+  });
+
+  test('설정이 일부만 있으면 있는 것만 채운다', () => {
+    const csv = toTrialCsv([sessionFixture({ settings: { sound: false } })]);
+    expect(cell(csv, 1, 'sound')).toBe('0');
+    expect(cell(csv, 1, 'reduced_motion')).toBe('');
   });
 });
 

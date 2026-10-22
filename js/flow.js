@@ -8,6 +8,7 @@ import { getTheme } from './themes.js';
 import { generateSequence } from './trialSequence.js';
 import { saveSession as defaultSaveSession } from './storage.js';
 import { collectDeviceInfo as defaultCollectDeviceInfo } from './deviceInfo.js';
+import { readPrefs as defaultReadPrefs } from './prefs.js';
 
 function newId() {
   const c = globalThis.crypto;
@@ -24,6 +25,7 @@ export function createFlow({
   onSessionEnd,
   saveSession = defaultSaveSession,
   collectDeviceInfo = defaultCollectDeviceInfo,
+  readPrefs = defaultReadPrefs,
   now = Date.now,
 }) {
   function beginTest(ctx, level) {
@@ -31,6 +33,10 @@ export function createFlow({
     const trialCount = TRIAL_COUNTS[level][setup.length];
     const trials = generateSequence(level, trialCount);
     const startedAt = now();
+    // 소리·애니메이션 줄이기는 device(기기·브라우저가 정하는 조건)와 달리 교사가 탭 한 번으로 바꾸는 설정이라 따로 `settings`에 둔다.
+    // 검사를 시작하는 순간의 값을 잡는다: 검사 중에는 바꿀 화면이 없으므로 저장 시점과 같지만, 시작 시점이 "학생이 겪은 조건"이다.
+    const prefs = readPrefs();
+    const settings = { sound: prefs.sound === true, reducedMotion: prefs.reducedMotion === true };
 
     // 저장은 검사가 끝나는 즉시 한다(마무리 애니메이션을 기다리지 않는다 — 학생이 그 사이 탭을 닫아도 회차가 남는다).
     // 화면 이동(onSessionEnd)은 완료 때는 애니메이션이 끝난 뒤, 중단 때는 곧바로다.
@@ -48,6 +54,7 @@ export function createFlow({
         responses,
         practice: ctx.practice,
         device: collectDeviceInfo(globalThis),
+        settings,
         toolVersion: TOOL_VERSION,
       };
       // 저장이 던져도(storage.js는 안 던지지만 주입된 saveSession이 던질 수 있다) 검사 흐름은 이어진다: 학생이 마무리 화면에

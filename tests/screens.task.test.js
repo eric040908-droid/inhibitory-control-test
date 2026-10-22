@@ -412,12 +412,28 @@ describe('자극 그림', () => {
     expect(stimulusGlyph()).toBe('');
   });
 
-  test('자극이 나올 때 소리가 한 번 난다 (Go와 No-Go가 같다)', () => {
+  // 스펙 §7 "소리에 대한 결정": 본 검사의 문항마다 자극 제시음을 넣지 않는다. 자극과 동시에 울리는 소리는 반응을 빠르게 만들고,
+  // No-Go 문항에서는 "무언가 일어났다"는 추가 신호가 되어 조급 반응과 억제 실패를 둘 다 늘린다.
+  test('자극이 나올 때 소리가 나지 않는다 (Go도 No-Go도, 어느 단계에서도)', () => {
+    for (const level of [1, 2, 3]) {
+      const { audio } = mountTask({ level });
+      hooks.onStimulus(goTrial(0));
+      hooks.onStimulus(nogoTrial(1));
+      expect(audio.playStimulus, `level ${level}`).not.toHaveBeenCalled();
+      expect(audio.playCorrect).not.toHaveBeenCalled(); // 소리는 반응 뒤 보상음뿐이다
+      screen.unmount();
+    }
+  });
+
+  test('보상음(playCorrect)은 그대로 난다: 정반응과 참기 성공에서, 반응 뒤에', () => {
     const { audio } = mountTask();
     hooks.onStimulus(goTrial(0));
+    expect(audio.playCorrect).not.toHaveBeenCalled(); // 문항이 뜬 순간에는 아무 소리도 없다
+    hooks.onTrialComplete({ index: 0, type: 'go', rtMs: 500, extraTaps: 0, invalid: false });
     hooks.onStimulus(nogoTrial(1));
-    expect(audio.playStimulus).toHaveBeenCalledTimes(2);
-    expect(audio.playStimulus.mock.calls[0]).toEqual(audio.playStimulus.mock.calls[1]);
+    hooks.onTrialComplete({ index: 1, type: 'nogo', rtMs: null, extraTaps: 0, invalid: false });
+    expect(audio.playCorrect).toHaveBeenCalledTimes(2);
+    expect(audio.playStimulus).not.toHaveBeenCalled();
   });
 });
 
