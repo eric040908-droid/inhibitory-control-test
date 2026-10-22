@@ -88,11 +88,15 @@ function stubRaf() {
     if (rafHonorsCancel) rafQueue = rafQueue.filter(q => q.id !== cancelId);
   }));
 }
+// 한 프레임: 지금 큐에 있는 콜백을 모두 돌린다. 콜백 안에서 새로 예약한 것은 다음 프레임에 돈다(이중 rAF의 안쪽).
+// 콜백이 받는 타임스탬프는 일부러 performance.now()와 다른 값(기본 1234)으로 준다 — 화면이 그 인자를 쓰지 않는다는 것을 가르기 위해서다.
 function flushRaf(timestamp = 1234) {
   const batch = rafQueue;
   rafQueue = [];
   for (const { cb } of batch) cb(timestamp);
 }
+// 자극이 그려질 때까지: 첫 프레임(페인트 전) + 둘째 프레임(첫 프레임이 그려진 뒤)
+const flushFrames = (n = 2, timestamp) => { for (let i = 0; i < n; i += 1) flushRaf(timestamp); };
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -563,41 +567,116 @@ describe('화면이 가려질 때 (visibilitychange)', () => {
   });
 });
 
-describe('markStimulusRendered와 rAF 신원', () => {
-  test('자극을 그린 직후 rAF 콜백에서 렌더 시각을 알린다', () => {
+describe('markStimulusRendered와 rAF 신원 (이중 rAF)', () => {
+  // 단일 rAF의 콜백은 페인트 전에 돈다(타임스탬프는 프레임 시작 시각). 반응시간의 기준은 "자극이 실제로 그려진 시각"이므로
+  // 이중 rAF를 쓴다: 둘째 콜백은 첫 프레임이 그려진 뒤에 돌고, 거기서 performance.now()를 읽어 알린다.
+  test('이중 rAF: 첫 프레임에서는 알리지 않고, 둘째 프레임에서 performance.now()로 한 번 알린다', () => {
     const { engine } = mountTask();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(5000);
     hooks.onStimulus(goTrial(0));
-    expect(engine.markStimulusRendered).not.toHaveBeenCalled(); // 아직 프레임이 오기 전
     flushRaf(2222);
+    expect(engine.markStimulusRendered).not.toHaveBeenCalled(); // 첫 프레임은 아직 페인트 전
+    now.mockReturnValue(5017);
+    flushRaf(3333);
     expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1);
-    expect(engine.markStimulusRendered).toHaveBeenCalledWith(2222);
+    expect(engine.markStimulusRendered).toHaveBeenCalledWith(5017); // rAF 인자(2222/3333)가 아니라 콜백 안의 now
+    now.mockRestore();
   });
 
-  test('문항이 바뀌면 보류 중이던 rAF를 취소한다 (묵은 콜백이 다음 문항에 떨어지지 않는다)', () => {
+  test('그 뒤 프레임이 더 와도 다시 알리지 않는다', () => {
     const { engine } = mountTask();
     hooks.onStimulus(goTrial(0));
-    hooks.onStimulus(goTrial(1));
-    flushRaf();
+    flushFrames(6);
     expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1);
   });
 
-  test('취소가 먹지 않아도 묵은 콜백은 알리지 않는다 (콜백 안에서 문항을 확인한다)', () => {
-    rafHonorsCancel = false; // 이미 큐에 들어간 콜백을 취소하지 못하는 경우를 흉내 낸다
+  test('문항이 바뀌면 안쪽·바깥쪽 보류 rAF를 모두 취소한다', () => {
     const { engine } = mountTask();
     hooks.onStimulus(goTrial(0));
+    flushRaf(); // 바깥 실행 → 안쪽이 예약됨
+    const innerId = cancelAnimationFrame.mock.calls.length; // 호출 수만 기억
     hooks.onStimulus(goTrial(1));
-    flushRaf(777);
+    expect(cancelAnimationFrame.mock.calls.length).toBe(innerId + 1); // 안쪽 핸들을 취소했다
+    flushFrames(2);
     expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1); // 문항 1의 것 하나뿐
   });
 
-  test('자극이 끝난 뒤 떨어진 콜백은 알리지 않는다', () => {
+  test('바깥 콜백이 돌기 전에 문항이 바뀌면 바깥 핸들을 취소한다', () => {
+    const { engine } = mountTask();
+    hooks.onStimulus(goTrial(0));
+    hooks.onStimulus(goTrial(1));
+    expect(cancelAnimationFrame).toHaveBeenCalledTimes(1); // 둘째 표시가 첫 표시의 보류 핸들 하나를 취소한다
+    flushFrames(2);
+    expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1);
+  });
+
+  test('취소가 먹지 않아도(이미 큐에 있는 콜백) 묵은 바깥 콜백은 안쪽을 예약하지 않는다', () => {
     rafHonorsCancel = false;
     const { engine } = mountTask();
-    const t = goTrial(0);
-    hooks.onStimulus(t);
-    hooks.onStimulusEnd(t);
-    flushRaf();
-    expect(engine.markStimulusRendered).not.toHaveBeenCalled();
+    hooks.onStimulus(goTrial(0));
+    hooks.onStimulus(goTrial(1));
+    flushFrames(3);
+    expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1);
+  });
+
+  test('취소가 먹지 않아도 묵은 안쪽 콜백은 알리지 않는다', () => {
+    rafHonorsCancel = false;
+    const { engine } = mountTask();
+    hooks.onStimulus(goTrial(0));
+    flushRaf(); // 문항 0의 안쪽이 큐에 있다
+    hooks.onStimulus(goTrial(1)); // 취소가 안 먹는다
+    flushFrames(3);
+    expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1); // 문항 1의 것뿐
+  });
+
+  // 묵은 콜백이 지금 문항의 핸들(rafId)을 덮어쓰거나 지우면, 나중에 그 핸들을 취소하지 못해 묵은 콜백이 살아남는다.
+  // 콜백이 도는 순서는 브라우저가 정하므로, 지금 문항의 콜백이 먼저 돌고 묵은 콜백이 뒤에 도는 순서를 만든다.
+  function flushReversed() {
+    const batch = rafQueue;
+    rafQueue = [];
+    for (const { cb } of [...batch].reverse()) cb(1234);
+  }
+
+  test('뒤늦게 도는 묵은 바깥 콜백은 지금 문항의 핸들을 덮어쓰지 않고 안쪽을 예약하지도 않는다', () => {
+    rafHonorsCancel = false;
+    mountTask();
+    hooks.onStimulus(goTrial(0));
+    hooks.onStimulus(goTrial(1));
+    flushReversed(); // 문항 1의 바깥이 먼저, 묵은 문항 0의 바깥이 나중에
+    expect(rafQueue).toHaveLength(1); // 문항 1의 안쪽 하나뿐
+    const liveId = rafQueue[0].id;
+    cancelAnimationFrame.mockClear();
+    hooks.onStimulusEnd(goTrial(1));
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(liveId);
+  });
+
+  test('뒤늦게 도는 묵은 안쪽 콜백은 지금 문항의 핸들을 지우지 않는다', () => {
+    rafHonorsCancel = false;
+    mountTask();
+    hooks.onStimulus(goTrial(0));
+    flushRaf(); // 문항 0의 안쪽이 큐에 있다
+    hooks.onStimulus(goTrial(1)); // 취소가 안 먹는다
+    flushReversed(); // 문항 1의 바깥이 먼저, 묵은 문항 0의 안쪽이 나중에
+    expect(rafQueue).toHaveLength(1);
+    const liveId = rafQueue[0].id;
+    cancelAnimationFrame.mockClear();
+    hooks.onStimulusEnd(goTrial(1));
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(liveId);
+  });
+
+  test('자극이 끝난 뒤(바깥만 돈 상태·돌기 전 모두)에는 알리지 않는다', () => {
+    for (const honors of [true, false]) {
+      rafHonorsCancel = honors;
+      const { engine } = mountTask();
+      const t = goTrial(0);
+      hooks.onStimulus(t);
+      flushRaf();
+      hooks.onStimulusEnd(t);
+      flushFrames(3);
+      expect(engine.markStimulusRendered).not.toHaveBeenCalled();
+      screen.unmount();
+      document.body.replaceChildren();
+    }
   });
 
   test('같은 문항 객체가 다시 나와도 앞선 표시의 콜백은 알리지 않는다', () => {
@@ -606,17 +685,29 @@ describe('markStimulusRendered와 rAF 신원', () => {
     const t = goTrial(0);
     hooks.onStimulus(t);
     hooks.onStimulus(t);
-    flushRaf();
+    flushFrames(3);
     expect(engine.markStimulusRendered).toHaveBeenCalledTimes(1);
   });
 
-  test('가려졌다 돌아온 뒤에는 묵은 콜백이 알리지 않는다', () => {
+  test('가려졌다 돌아온 뒤에는 묵은 콜백이 알리지 않는다 (두 프레임 사이에 가려져도)', () => {
     rafHonorsCancel = false;
     const { engine } = mountTask();
     hooks.onStimulus(goTrial(0));
+    flushRaf(); // 바깥만 실행
     fireVisibility('hidden');
     fireVisibility('visible');
+    flushFrames(3);
+    expect(engine.markStimulusRendered).not.toHaveBeenCalled();
+  });
+
+  test('두 프레임 사이에 떠나면(unmount) 알리지 않고 핸들을 취소한다', () => {
+    rafHonorsCancel = false;
+    const { engine } = mountTask();
+    hooks.onStimulus(goTrial(0));
     flushRaf();
+    screen.unmount();
+    expect(cancelAnimationFrame).toHaveBeenCalled();
+    flushFrames(3);
     expect(engine.markStimulusRendered).not.toHaveBeenCalled();
   });
 });
@@ -833,7 +924,7 @@ describe('unmount가 모든 것을 거둔다', () => {
     hooks.onStimulus(goTrial(0));
     screen.unmount();
     expect(cancelAnimationFrame).toHaveBeenCalled();
-    flushRaf();
+    flushFrames(2);
     expect(engine.markStimulusRendered).not.toHaveBeenCalled();
   });
 
@@ -929,10 +1020,11 @@ describe('진짜 엔진', () => {
     const { audio, onFinish } = runRealSession();
     vi.advanceTimersByTime(LEVELS[2].interTrialMs); // 첫 자극 시작
     expect(stimulusGlyph()).toBe(getTheme('animal').goGlyph);
-    const shownAt = performance.now();
-    flushRaf(shownAt + 16); // 프레임이 그려진 시각
-    vi.advanceTimersByTime(516);
-    tapAtNow(); // 그려진 뒤 500ms
+    flushRaf(); // 첫 프레임(페인트 전)
+    vi.advanceTimersByTime(16); // 한 프레임 뒤
+    flushRaf(); // 둘째 프레임: 이 시각(startedAt + 16)이 렌더 마크가 된다
+    vi.advanceTimersByTime(500);
+    tapAtNow(); // 그려진 뒤 500ms (자극 요청 뒤로는 516ms)
     expect(stimulusGlyph()).toBe(''); // 반응하면 자극이 바로 사라진다
     expect(filledCells()).toBe(1);
     expect(audio.playCorrect).toHaveBeenCalledTimes(1);
@@ -946,6 +1038,7 @@ describe('진짜 엔진', () => {
     expect(onFinish).toHaveBeenCalledTimes(1);
     const responses = onFinish.mock.calls[0][0];
     expect(responses).toHaveLength(3);
+    // 렌더 마크가 효과를 낸다: 자극을 요청한 시각(startedAt)부터 재면 516이다. 그려진 시각부터 재므로 500.
     expect(responses[0].rtMs).toBeCloseTo(500, 0);
     expect(responses[0].extraTaps).toBe(2); // onTrialComplete의 스냅샷은 0이었다 — 최종 배열을 넘겼다는 증거
     expect(responses[1]).toMatchObject({ type: 'go', rtMs: null });

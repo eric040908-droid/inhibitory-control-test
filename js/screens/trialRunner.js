@@ -212,12 +212,21 @@ export function createTrialRunner({ view, audio, createEngine, theme, level, tri
       cancelPendingRender();
       current = trial;
       view.showStimulus(glyphForTrial(theme, level, trial));
+      // 이중 rAF. 단일 rAF의 콜백은 페인트 전에 돌고 그 타임스탬프는 프레임 시작 시각이라(보통 자극을 요청한 시각보다도 이르다)
+      // 엔진의 max(ts, startedAt)에 걸려 렌더 마크가 아무 효과도 못 낸다. 둘째 rAF의 콜백은 첫 프레임이 그려진 뒤에 도므로,
+      // 거기서 performance.now()를 읽은 값이 "자극이 실제로 그려진 시각"에 가장 가깝다(콜백의 타임스탬프 인자는 쓰지 않는다).
+      //
+      // 요구 4: 핸들이 둘이 되므로 문항이 바뀔 때(cancelPendingRender) 보류 중인 쪽을 취소하고, 두 콜백 모두 안에서
+      // "예약한 표시가 아직 그대로인지" 확인한다. 묵은 콜백은 rafId를 건드리지 않는다(지금 문항의 핸들을 지우면 안 된다).
       const generation = rafGeneration;
-      rafId = requestAnimationFrame((renderedAt) => {
-        rafId = null;
-        // 문항 N의 묵은 콜백이 N+1에 떨어지면 잘못된 렌더 시각이 기록된다. 예약한 문항이 아직 떠 있을 때만 알린다.
-        if (current !== trial || generation !== rafGeneration) return;
-        engine.markStimulusRendered(renderedAt);
+      const stale = () => current !== trial || generation !== rafGeneration;
+      rafId = requestAnimationFrame(() => {
+        if (stale()) return;
+        rafId = requestAnimationFrame(() => {
+          if (stale()) return;
+          rafId = null;
+          engine.markStimulusRendered(clock.now());
+        });
       });
       audio.playStimulus();
     },
@@ -237,7 +246,8 @@ export function createTrialRunner({ view, audio, createEngine, theme, level, tri
     },
   };
 
-  const engine = createEngine({ trials, levelParams, hooks, clock: makeClock() });
+  const clock = makeClock();
+  const engine = createEngine({ trials, levelParams, hooks, clock });
 
   // 반응 입력: pointerdown. 시각은 핸들러가 실행된 때가 아니라 이벤트가 일어난 때(event.timeStamp)다.
   view.responseEl.addEventListener('pointerdown', (event) => {
