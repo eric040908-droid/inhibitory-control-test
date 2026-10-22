@@ -7,7 +7,7 @@
 //
 // 서비스 워커는 ES 모듈 import를 믿을 수 없는 환경이 있어(일부 브라우저는 모듈 워커를 지원하지 않는다)
 // js/config.js의 TOOL_VERSION을 import하지 않고 여기에 같은 값을 적는다. 어긋나면 테스트가 깨진다.
-const TOOL_VERSION = '0.1.0';
+const TOOL_VERSION = '0.1.1';
 const CACHE_PREFIX = 'icp-';
 const CACHE_NAME = CACHE_PREFIX + TOOL_VERSION;
 
