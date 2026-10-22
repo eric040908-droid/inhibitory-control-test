@@ -204,7 +204,9 @@ describe('js/main.js', () => {
     expect(main).toMatch(/document\.addEventListener\(\s*'pointerup'/);
   });
 
-  test('입력은 pointerdown이고 click은 쓰지 않는다', () => {
+  // main.js의 입력 경로(소리 해제)는 pointerdown이다. 이 금지는 main.js와 학생 화면에만 해당한다:
+  // 스크롤하는 교사 화면의 버튼은 click이 맞다(tests/screens.setup.test.js가 고정한다).
+  test('main.js의 입력은 pointerdown이고 click은 쓰지 않는다', () => {
     expect(main).not.toMatch(/['"]click['"]/);
   });
 

@@ -8,8 +8,9 @@
 //   deps.audio.setEnabled만 쓴다. audio·engine은 직접 import하지 않고 deps로 받는다(테스트가 호출을 관찰한다).
 //   onStart({ alias, themeId, length, levelOverride: 1|2|3|null }) — levelOverride가 null이면 연습 결과로 정한다.
 //
-// 입력: 버튼은 pointerdown(+키보드 Enter/Space)이고 click은 쓰지 않는다. 라디오·체크박스·입력란·선택 상자는
-// 브라우저 기본 동작(change/input)을 그대로 쓴다 — 키보드로도 조작되어야 하기 때문이다.
+// 입력: 이 화면의 버튼은 click이다(스크롤하는 화면이라 pointerdown이면 스크롤하려는 손가락이 버튼을 누른다).
+// 학생의 반응 입력만 pointerdown이다. 라디오·체크박스·입력란·선택 상자는 브라우저 기본 동작(change/input)을 그대로 쓴다 —
+// 키보드로도 조작되어야 하기 때문이다.
 import { LEVELS, PRACTICE, THRESHOLDS, TRIAL_COUNTS } from '../config.js';
 import { THEMES } from '../themes.js';
 import { isAvailable, lastSetup, listStudents, saveLastSetup } from '../storage.js';
@@ -158,12 +159,11 @@ export function createSetupScreen(deps) {
       const { signal } = controller;
       const { onStart, onHistory } = params ?? {};
 
-      // 버튼 누르기: pointerdown, 그리고 키보드 사용자를 위한 Enter/Space. 마우스 오른쪽 버튼은 누르기가 아니다.
+      // 버튼 누르기: click. 교사 화면은 스크롤되므로 pointerdown이면 스크롤하려고 손가락을 댄 것이 버튼을 누른다.
+      // click은 브라우저가 탭과 스크롤을 가려 주고, <button>의 Enter/Space도 click이 되어 키보드로도 눌린다.
+      // (학생의 반응 입력만 pointerdown이다 — 반응시간을 재는 경로이고, 이 화면은 측정 경로가 아니다.)
       const press = (el, fn) => {
-        el.addEventListener('pointerdown', (event) => { if (!(event.button > 0)) fn(); }, { signal });
-        el.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fn(); }
-        }, { signal });
+        el.addEventListener('click', () => fn(), { signal });
       };
 
       // ---- 시작 상태 ----

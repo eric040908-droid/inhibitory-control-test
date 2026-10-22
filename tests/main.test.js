@@ -43,11 +43,17 @@ test('설정 화면은 deps.audio로 소리 선택을 전달한다 (부팅 때 �
   expect(audioModule.setEnabled).toHaveBeenCalledWith(true);
 });
 
-test('설정 화면의 시작을 눌러도, 이어 갈 화면을 잇기 전에는 던지지 않는다', async () => {
+test('설정 화면의 시작(click)을 누르면 지난 설정이 저장되고, 이어 갈 화면을 잇기 전에도 던지지 않는다', async () => {
   await boot();
   const input = document.querySelector('input[name="alias"]');
   input.value = '학생1';
-  expect(() => pointerdown(document.querySelector('[data-action="start"]'))).not.toThrow();
+  const errors = [];
+  const onError = (e) => { e.preventDefault(); errors.push(e.error); };
+  window.addEventListener('error', onError);
+  document.querySelector('[data-action="start"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  window.removeEventListener('error', onError);
+  expect(errors).toEqual([]);
+  expect(JSON.parse(localStorage.getItem('inhibitoryControlTest')).lastSetup).toMatchObject({ alias: '학생1' });
 });
 
 test('#app이 없으면 이유를 말하며 던진다', async () => {

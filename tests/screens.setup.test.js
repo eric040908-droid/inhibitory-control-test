@@ -46,7 +46,7 @@ function remountSetup(opts) {
 }
 
 const qs = (sel) => document.querySelector(sel);
-const pointerdown = (el) => el.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+const tap = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 const change = (el) => el.dispatchEvent(new Event('change', { bubbles: true }));
 
 function pick(name, value) {
@@ -69,7 +69,7 @@ const reducedMotionToggle = () => qs('input[type="checkbox"][name="reducedMotion
 const soundToggle = () => qs('input[type="checkbox"][name="sound"]');
 
 const quickStartButton = () => qs('[data-action="quick-start"]');
-const clickQuickStart = () => pointerdown(quickStartButton());
+const clickQuickStart = () => tap(quickStartButton());
 const startButton = () => qs('[data-action="start"]');
 const historyButton = () => qs('[data-action="history"]');
 const shortageNotice = () => qs('[data-notice="no-go-shortage"]');
@@ -174,7 +174,7 @@ describe('저장 불가 안내', () => {
     stubStorageThatThrows();
     const { onStart } = mountSetup();
     typeAlias('학생1');
-    pointerdown(startButton());
+    tap(startButton());
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 });
@@ -228,7 +228,7 @@ describe('별칭', () => {
 
   test('별칭이 비어 있으면 시작하지 않고 이유를 알리며 입력 칸으로 돌아간다', () => {
     const { onStart } = mountSetup();
-    pointerdown(startButton());
+    tap(startButton());
     expect(onStart).not.toHaveBeenCalled();
     expect(qs('[data-error="alias"]').textContent).toMatch(/별칭/);
     expect(document.activeElement).toBe(qs('input[name="alias"]'));
@@ -237,13 +237,13 @@ describe('별칭', () => {
   test('공백뿐인 별칭도 비어 있는 것으로 본다', () => {
     const { onStart } = mountSetup();
     typeAlias('   ');
-    pointerdown(startButton());
+    tap(startButton());
     expect(onStart).not.toHaveBeenCalled();
   });
 
   test('입력 오류 표시는 별칭을 고치면 사라진다', () => {
     mountSetup();
-    pointerdown(startButton());
+    tap(startButton());
     expect(qs('[data-error="alias"]')).not.toBeNull();
     typeAlias('학생1');
     expect(qs('[data-error="alias"]')).toBeNull();
@@ -263,7 +263,7 @@ describe('시작과 결과 보기', () => {
     const { onStart } = mountSetup();
     typeAlias('  학생1 ');
     selectTheme('fruit'); selectLength('long'); selectLevelOverride(3);
-    pointerdown(startButton());
+    tap(startButton());
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onStart).toHaveBeenCalledWith({ alias: '학생1', themeId: 'fruit', length: 'long', levelOverride: 3 });
   });
@@ -271,21 +271,21 @@ describe('시작과 결과 보기', () => {
   test('연습으로 결정이면 levelOverride가 null이다', () => {
     const { onStart } = mountSetup();
     typeAlias('학생1');
-    pointerdown(startButton());
+    tap(startButton());
     expect(onStart).toHaveBeenCalledWith({ alias: '학생1', themeId: THEMES[0].id, length: 'medium', levelOverride: null });
   });
 
   test('시작하면 그 설정을 지난 설정으로 저장한다 (다음에 바로 시작 버튼이 쓴다)', () => {
     mountSetup();
     typeAlias('학생1'); selectTheme('shape'); selectLength('short'); selectLevelOverride(2);
-    pointerdown(startButton());
+    tap(startButton());
     expect(lastSetup()).toEqual({ alias: '학생1', themeId: 'shape', level: 2, length: 'short' });
   });
 
   test('시작을 연달아 두 번 눌러도 onStart는 한 번이다 (더블탭)', () => {
     const { onStart } = mountSetup();
     typeAlias('학생1');
-    pointerdown(startButton()); pointerdown(startButton());
+    tap(startButton()); tap(startButton());
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
@@ -298,9 +298,9 @@ describe('시작과 결과 보기', () => {
       const onStart = vi.fn().mockImplementationOnce(() => { throw new Error('x'); });
       mountSetup({ onStart });
       typeAlias('학생1');
-      pointerdown(startButton());
+      tap(startButton());
       expect(reported).toHaveLength(1);
-      pointerdown(startButton());
+      tap(startButton());
       expect(onStart).toHaveBeenCalledTimes(2);
     } finally {
       window.removeEventListener('error', onError);
@@ -309,7 +309,7 @@ describe('시작과 결과 보기', () => {
 
   test('결과 보기는 onHistory를 부른다', () => {
     const { onHistory } = mountSetup();
-    pointerdown(historyButton());
+    tap(historyButton());
     expect(onHistory).toHaveBeenCalledTimes(1);
   });
 
@@ -319,46 +319,55 @@ describe('시작과 결과 보기', () => {
     screen = createSetupScreen({ audio: makeAudio() });
     screen.mount(root);
     typeAlias('학생1');
-    expect(() => { pointerdown(startButton()); pointerdown(historyButton()); }).not.toThrow();
+    expect(() => { tap(startButton()); tap(historyButton()); }).not.toThrow();
   });
 });
 
-// ---- 입력은 pointerdown ---------------------------------------------------------------------
+// ---- 입력은 click (교사 화면) -------------------------------------------------------------------
+// 학생의 반응 입력만 pointerdown이다(반응시간을 재는 경로). 이 화면은 스크롤되므로, 버튼을 pointerdown으로 두면
+// 스크롤하려고 손가락을 댄 것이 버튼을 눌러 버린다. click은 브라우저가 탭과 스크롤을 가려 준다.
 describe('입력 방식', () => {
-  test('click만 오면 반응하지 않는다 (입력은 pointerdown)', () => {
+  test('시작·바로 시작·결과 보기는 click으로 동작한다', () => {
+    saveLastSetup({ alias: '학생1', themeId: 'animal', level: 2, length: 'medium' });
+    const first = mountSetup();
+    tap(quickStartButton());
+    expect(first.onStart).toHaveBeenCalledTimes(1);
+    tap(historyButton());
+    expect(first.onHistory).toHaveBeenCalledTimes(1);
+    const second = remountSetup();
+    typeAlias('학생2');
+    tap(startButton());
+    expect(second.onStart).toHaveBeenCalledTimes(1);
+  });
+
+  test('pointerdown·pointerup만으로는 아무 버튼도 눌리지 않는다 (스크롤하려고 손가락을 댄 것)', () => {
+    saveLastSetup({ alias: '학생1', themeId: 'animal', level: 2, length: 'medium' });
     const { onStart, onHistory } = mountSetup();
     typeAlias('학생1');
-    startButton().click();
-    historyButton().click();
+    for (const button of [startButton(), quickStartButton(), historyButton()]) {
+      for (const type of ['pointerdown', 'pointerup', 'mousedown', 'touchstart']) {
+        button.dispatchEvent(new Event(type, { bubbles: true }));
+      }
+    }
     expect(onStart).not.toHaveBeenCalled();
     expect(onHistory).not.toHaveBeenCalled();
   });
 
-  test('키보드(Enter, Space)로도 누를 수 있다', () => {
-    const { onStart, onHistory } = mountSetup();
-    typeAlias('학생1');
-    startButton().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(onStart).toHaveBeenCalledTimes(1);
-    historyButton().dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    expect(onHistory).toHaveBeenCalledTimes(1);
+  test('버튼은 진짜 <button>이다 (키보드 Enter/Space가 브라우저 기본 동작으로 click이 된다)', () => {
+    saveLastSetup({ alias: '학생1', themeId: 'animal', level: 2, length: 'medium' });
+    mountSetup();
+    for (const button of [startButton(), quickStartButton(), historyButton()]) {
+      expect(button.tagName).toBe('BUTTON');
+      expect(button.getAttribute('type')).toBe('button');
+    }
   });
 
-  test('다른 키는 누르기로 치지 않는다', () => {
-    const { onHistory } = mountSetup();
-    historyButton().dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-    expect(onHistory).not.toHaveBeenCalled();
-  });
-
-  test('마우스 오른쪽 버튼은 누르기로 치지 않는다', () => {
-    const { onHistory } = mountSetup();
-    historyButton().dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { button: 2 }));
-    expect(onHistory).not.toHaveBeenCalled();
-  });
-
-  test('화면 코드에 click 이벤트를 쓰지 않는다', async () => {
+  test('화면 코드에 pointerdown을 쓰지 않는다 (교사 화면 버튼의 회귀 방지)', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('js/screens/setup.js', 'utf8'); // vitest는 프로젝트 루트에서 돈다
-    expect(src).not.toMatch(/['"]click['"]/);
+    // 주석에 단어가 나와도 상관없다: 리스너를 거는 코드만 본다.
+    expect(src).not.toMatch(/addEventListener\(\s*['"](?:pointerdown|pointerup|mousedown|touchstart|keydown)['"]/);
+    expect(src).toMatch(/addEventListener\('click'/);
   });
 });
 
@@ -484,7 +493,7 @@ describe('No-Go 문항 부족 경고', () => {
 
 // ---- 지난 설정으로 바로 시작 ---------------------------------------------------------------------
 describe('지난 설정으로 바로 시작', () => {
-  test('탭 한 번(pointerdown 한 번)으로 onStart를 정확히 한 번 부르고, 값은 지난 설정 그대로다', () => {
+  test('탭 한 번(click 한 번)으로 onStart를 정확히 한 번 부르고, 값은 지난 설정 그대로다', () => {
     saveLastSetup({ alias: '학생1', themeId: 'food', level: 3, length: 'long' });
     const { onStart } = mountSetup();
     clickQuickStart();
@@ -703,8 +712,7 @@ describe('unmount가 정리한다', () => {
     typeAlias('학생1');
     const start = startButton(); const quick = quickStartButton(); const history = historyButton();
     screen.unmount();
-    pointerdown(start); pointerdown(quick); pointerdown(history);
-    start.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    tap(start); tap(quick); tap(history);
     expect(onStart).not.toHaveBeenCalled();
     expect(onHistory).not.toHaveBeenCalled();
   });
@@ -731,7 +739,7 @@ describe('unmount가 정리한다', () => {
     mountSetup();
     typeAlias('학생1');
     selectLength('short'); selectLevelOverride(1); toggleSound(false); toggleReducedMotion(true);
-    pointerdown(startButton());
+    tap(startButton());
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -747,8 +755,8 @@ describe('unmount가 정리한다', () => {
     const oldStart = startButton();
     const second = remountSetup();
     typeAlias('학생1');
-    pointerdown(oldStart);
-    pointerdown(startButton());
+    tap(oldStart);
+    tap(startButton());
     expect(first.onStart).not.toHaveBeenCalled();
     expect(second.onStart).toHaveBeenCalledTimes(1);
   });
