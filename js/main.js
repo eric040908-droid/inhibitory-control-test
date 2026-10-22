@@ -3,6 +3,7 @@
 import { createRouter } from './router.js';
 import { unlock, playCorrect, playStimulus, setEnabled } from './audio.js';
 import { createEngine } from './engine.js';
+import { createSetupScreen } from './screens/setup.js';
 
 // ---- deps 조립 지점 -----------------------------------------------------------------------
 // 화면 모듈은 audio와 createEngine을 직접 import하지 않고 deps로 받는다. 화면 테스트가
@@ -23,32 +24,12 @@ import { createEngine } from './engine.js';
 const audio = { unlock, playCorrect, playStimulus, setEnabled };
 export const deps = { audio, createEngine };
 
-// ---- 플레이스홀더 화면 ---------------------------------------------------------------------
-// 임시 화면이다. Task 11이 설정 화면(createSetupScreen(deps))으로 교체하고 이 함수를 지운다.
-// 셸이 뜨는지와 라우터가 연결됐는지만 보여 준다.
-function createPlaceholderScreen(_deps) {
-  return {
-    mount(rootEl) {
-      const page = document.createElement('main');
-      page.className = 'teacher-screen';
-      page.dataset.placeholder = '';
-      const title = document.createElement('h1');
-      title.textContent = '억제 통제 검사';
-      const note = document.createElement('p');
-      note.className = 'text-muted';
-      note.textContent = '화면 준비 중입니다. (플레이스홀더)';
-      page.append(title, note);
-      rootEl.append(page);
-    },
-  };
-}
-
 // ---- 부팅 --------------------------------------------------------------------------------
 const rootEl = document.getElementById('app');
 if (!rootEl) throw new Error('index.html에 #app이 없습니다');
 
 export const router = createRouter(rootEl, {
-  setup: createPlaceholderScreen(deps), // Task 11이 교체. Task 12~14가 practice/test/result/history를 더한다.
+  setup: createSetupScreen(deps), // Task 12~14가 practice/test/result/history를 더하고, setup의 onStart·onHistory를 router.go로 잇는다.
 });
 
 // 소리는 사용자 제스처 안에서만 풀린다(브라우저 정책). 한 번만 걸고 떼는 대신 매번 부르기로 했다:
@@ -63,4 +44,5 @@ const unlockAudio = () => audio.unlock();
 document.addEventListener('pointerdown', unlockAudio, { capture: true });
 document.addEventListener('pointerup', unlockAudio, { capture: true });
 
+// onStart·onHistory는 아직 잇지 않았다: 이어 갈 화면(연습·검사·결과)이 Task 12~14에서 생긴다. 그때 여기서 넘긴다.
 router.go('setup');

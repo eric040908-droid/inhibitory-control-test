@@ -73,6 +73,9 @@ body {
   max-width: 40rem;
   margin: 0 auto;
   padding: var(--space-3) var(--space-2);
+  /* 한글이 단어 중간에서 줄바꿈되지 않게. 긴 별칭은 넘치지 않게 꺾는다. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .teacher-screen h1 {
@@ -114,6 +117,130 @@ input, select {
   font-weight: 700;
   cursor: pointer;
   transition: background-color var(--motion-fast);
+}
+
+/* ---- 설정 화면 (교사, 한 손 조작) ------------------------------------------
+   선택지는 칸 전체가 label이라 어디를 눌러도 되고, 칸 높이는 버튼과 같다. 선택 표시는 기본 라디오 점·체크 표시가
+   맡으므로 색을 못 보아도 구분된다. 칸 배경은 보조일 뿐이다. */
+
+.btn-block {
+  display: flex;
+  width: 100%;
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.setup-section {
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  border: 0;
+}
+
+.setup-section legend,
+.field-label {
+  display: block;
+  margin: 0 0 var(--space-1);
+  padding: 0;
+  font-weight: 700;
+}
+
+.setup-screen input[type="text"],
+.setup-screen select {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-1);
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-1);
+}
+
+.choice-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.choice-wide {
+  grid-column: 1 / -1;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--tap-min);
+  padding: var(--space-1) var(--space-2);
+  border: 0.125rem solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.choice input {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+
+.choice input:checked + .choice-text {
+  font-weight: 700;
+}
+
+.choice-glyph {
+  font-family: var(--font-emoji);
+}
+
+/* :has를 모르는 브라우저는 이 규칙만 버리고, 선택 표시는 라디오 점이 그대로 맡는다. */
+.choice:has(input:checked) {
+  background: var(--color-response);
+}
+
+.notice {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2);
+  border: 0.125rem solid var(--color-border);
+  border-left-width: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.notice p:last-child {
+  margin-bottom: 0;
+}
+
+.notice-title {
+  font-weight: 700;
+}
+
+.field-error {
+  margin: 0 0 var(--space-1);
+  font-weight: 700;
+}
+
+.quick-start {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2);
+  border: 0.125rem solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-response);
+}
+
+.quick-start .btn {
+  margin-bottom: var(--space-2);
+}
+
+.setup-actions {
+  display: grid;
+  gap: var(--space-2);
 }
 
 /* ---- 검사 화면 (학생이 보는 화면, 문장 없음) ------------------------------

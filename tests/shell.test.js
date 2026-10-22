@@ -223,8 +223,9 @@ describe('js/main.js', () => {
     expect(main).not.toMatch(/playWrong|playError|playIncorrect|playFail/i);
   });
 
-  test('플레이스홀더임이 코드에 분명히 적혀 있다', () => {
-    expect(main).toMatch(/플레이스홀더/);
-    expect(main).toMatch(/Task 11/);
+  test('설정 화면을 createSetupScreen(deps)로 등록하고 플레이스홀더는 남기지 않는다', () => {
+    expect(main).toMatch(/import\s*\{[^}]*\bcreateSetupScreen\b[^}]*\}\s*from\s*'\.\/screens\/setup\.js'/);
+    expect(main).toMatch(/setup:\s*createSetupScreen\(deps\)/);
+    expect(main).not.toMatch(/createPlaceholderScreen/);
   });
 });

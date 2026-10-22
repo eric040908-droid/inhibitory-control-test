@@ -29,12 +29,25 @@ async function boot({ withRoot = true } = {}) {
 
 const pointerdown = target => target.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 
-test('#app에 플레이스홀더 화면을 올린다', async () => {
+test('#app에 설정 화면을 올린다', async () => {
   const { main } = await boot();
   expect(main.router.current()).toBe('setup');
   const app = document.getElementById('app');
-  expect(app.querySelector('[data-placeholder]')).not.toBeNull();
-  expect(app.textContent).toContain('플레이스홀더');
+  expect(app.querySelector('[data-screen="setup"]')).not.toBeNull();
+  expect(app.querySelector('[data-action="start"]')).not.toBeNull();
+  expect(app.querySelector('[data-placeholder]')).toBeNull();
+});
+
+test('설정 화면은 deps.audio로 소리 선택을 전달한다 (부팅 때 저장된 선택에 맞춘다)', async () => {
+  const { audioModule } = await boot();
+  expect(audioModule.setEnabled).toHaveBeenCalledWith(true);
+});
+
+test('설정 화면의 시작을 눌러도, 이어 갈 화면을 잇기 전에는 던지지 않는다', async () => {
+  await boot();
+  const input = document.querySelector('input[name="alias"]');
+  input.value = '학생1';
+  expect(() => pointerdown(document.querySelector('[data-action="start"]'))).not.toThrow();
 });
 
 test('#app이 없으면 이유를 말하며 던진다', async () => {
