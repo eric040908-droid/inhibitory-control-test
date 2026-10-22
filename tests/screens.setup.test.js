@@ -836,11 +836,50 @@ describe('좁은 화면(360~375px)에서 라벨이 음절 중간에서 쪼개지
     expect(grids.some((g) => g.querySelector('input[name="length"]'))).toBe(true);
   });
 
-  test('css: overflow-wrap: anywhere와 break-all을 쓰지 않는다 (한국어 라벨을 음절 중간에서 끊는다)', async () => {
+  // 한국어를 음절 중간에서 끊는 줄바꿈 선언의 목록. 두 번의 수정 라운드를 쓴 결함이라 철자를 넓게 막는다:
+  //   word-break: break-all          어디서든 끊는다
+  //   word-break: break-word         (더 이상 쓰지 않는 별칭) overflow-wrap: anywhere와 같게 동작해 keep-all을 덮는다
+  //   overflow-wrap: anywhere        칸이 좁아지면 keep-all을 덮어쓴다
+  //   word-wrap: anywhere            overflow-wrap의 옛 이름
+  //   line-break: anywhere           어디서든 끊는다
+  // 허용: overflow-wrap: break-word / word-wrap: break-word (공백 없이 이어진 긴 글자만 꺾는다), word-break: keep-all.
+  const BREAKING = [
+    ['word-break: break-all', /word-break\s*:\s*break-all/i],
+    ['word-break: break-word', /word-break\s*:\s*break-word/i],
+    ['overflow-wrap: anywhere', /overflow-wrap\s*:\s*anywhere/i],
+    ['word-wrap: anywhere', /word-wrap\s*:\s*anywhere/i],
+    ['line-break: anywhere', /line-break\s*:\s*anywhere/i],
+  ];
+
+  test('css: 음절 중간에서 끊는 줄바꿈 선언을 하나도 쓰지 않는다 (break-all, word-break: break-word, overflow-wrap·word-wrap·line-break: anywhere)', async () => {
     const css = stripComments(await read('css/app.css'));
-    expect(css).not.toMatch(/overflow-wrap:\s*anywhere/);
-    expect(css).not.toMatch(/word-break:\s*break-all/);
-    expect(css).not.toMatch(/line-break:\s*anywhere/);
+    for (const [name, pattern] of BREAKING) expect(css, name).not.toMatch(pattern);
+  });
+
+  test('js: 화면이 style 속성으로 그런 선언을 넣지도 않는다', async () => {
+    const fs = await import('node:fs');
+    const files = [
+      ...fs.readdirSync('js').filter((f) => f.endsWith('.js')).map((f) => `js/${f}`),
+      ...fs.readdirSync('js/screens').filter((f) => f.endsWith('.js')).map((f) => `js/screens/${f}`),
+    ];
+    expect(files.length).toBeGreaterThan(10);
+    for (const file of files) {
+      const source = stripComments(await read(file)).replace(/^\s*\/\/.*$/gm, ''); // 설명 글은 이 낱말들을 말해도 된다
+      for (const [name, pattern] of BREAKING) expect(source, `${file}: ${name}`).not.toMatch(pattern);
+    }
+  });
+
+  test('이 목록의 정규식은 실제로 나쁜 철자를 잡는다 (검사가 조용히 썩지 않게)', () => {
+    const bad = [
+      'word-break: break-all', 'word-break:break-all', 'WORD-BREAK : BREAK-ALL',
+      'word-break: break-word', 'word-break:break-word;',
+      'overflow-wrap: anywhere', 'overflow-wrap:anywhere !important',
+      'word-wrap: anywhere', 'word-wrap:anywhere',
+      'line-break: anywhere',
+    ];
+    for (const css of bad) expect(BREAKING.some(([, pattern]) => pattern.test(css)), css).toBe(true);
+    const fine = ['word-break: keep-all', 'overflow-wrap: break-word', 'word-wrap: break-word', 'line-break: strict', 'white-space: nowrap'];
+    for (const css of fine) expect(BREAKING.some(([, pattern]) => pattern.test(css)), css).toBe(false);
   });
 
   test('css: 교사 화면은 word-break: keep-all이다', async () => {
