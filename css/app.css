@@ -32,7 +32,7 @@
   --stimulus-size: min(60vmin, 18rem);  /* 자극 그림 한 변. 가로·세로 어느 쪽에서도 영역 안에 들어간다 */
   --strip-height: 4rem;                  /* 자극 영역과 반응 영역 사이 수집 격자 띠 */
 
-  /* 움직임 — 0.01ms로 줄어드는 reduced-motion 규칙이 이 값을 덮어쓴다 */
+  /* 움직임 — reduced-motion 규칙이 transition-duration을 0.01ms로 줄이므로, 그때는 이 값이 있어도 전환이 사실상 없다 */
   --motion-fast: 150ms;
 }
 
@@ -126,9 +126,11 @@ input, select {
     "stimulus"
     "strip"
     "response";
-  grid-template-rows: 1fr var(--strip-height) 50dvh;
+  /* 세 번째 행은 50%다. dvh 단위를 쓰면 dvh를 모르는 브라우저(iOS 15.4 미만 등)가 이 선언 전체를 버려
+     반응 영역이 사라진다. 백분율은 아래 height가 확정해 주므로 100vh/100dvh 어느 쪽에서도 정확히 절반이다. */
+  grid-template-rows: 1fr var(--strip-height) 50%;
   grid-template-columns: minmax(0, 1fr);
-  height: 100vh;      /* dvh를 모르는 브라우저용 */
+  height: 100vh;      /* dvh를 모르는 브라우저용 폴백 — 같은 속성에서 뒤 선언이 dvh를 알아야 덮어쓴다 */
   height: 100dvh;
   overflow: hidden;
   /* 핀치 확대까지 막는다: 이 화면은 스크롤하지 않으므로 팬 제스처도 필요 없다. */

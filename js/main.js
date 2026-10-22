@@ -51,9 +51,16 @@ export const router = createRouter(rootEl, {
   setup: createPlaceholderScreen(deps), // Task 11이 교체. Task 12~14가 practice/test/result/history를 더한다.
 });
 
-// 소리는 사용자 제스처 안에서만 풀린다(브라우저 정책). 첫 pointerdown에서 한 번만 걸고 떼지 않고,
-// 매번 부르기로 했다: unlock()은 이미 running이면 아무것도 안 하므로 비용이 없고, 전화·탭 전환으로
-// 컨텍스트가 멈춘 뒤 다음 탭에서 다시 깨워 준다. capture로 걸어 화면이 stopPropagation을 해도 놓치지 않는다.
-document.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
+// 소리는 사용자 제스처 안에서만 풀린다(브라우저 정책). 한 번만 걸고 떼는 대신 매번 부르기로 했다:
+// unlock()은 이미 running이면 아무것도 안 하므로 비용이 없고, 전화·탭 전환으로 컨텍스트가 멈춘 뒤
+// 다음 탭에서 다시 깨워 준다. capture로 걸어 화면이 stopPropagation을 해도 놓치지 않는다.
+//
+// pointerup에도 건다: 터치에서 pointerdown은 브라우저가 "사용자 활성화"로 치는 이벤트가 아니다
+// (Chrome·iOS Safari 모두 터치의 활성화는 pointerup/touchend). 마우스와 달리 터치는 pointerdown만으로는
+// AudioContext가 안 풀릴 수 있어서, 주 기기인 스마트폰에서는 pointerup 경로가 실제로 소리를 푼다.
+// 이것은 오디오 해제 경로일 뿐이다 — 반응 입력은 계속 pointerdown이다(검사 화면이 받는다).
+const unlockAudio = () => audio.unlock();
+document.addEventListener('pointerdown', unlockAudio, { capture: true });
+document.addEventListener('pointerup', unlockAudio, { capture: true });
 
 router.go('setup');

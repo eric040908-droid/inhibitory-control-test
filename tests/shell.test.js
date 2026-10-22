@@ -81,7 +81,8 @@ describe('css/app.css', () => {
     const root = blockOf(css, ':root');
     const names = [...root.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]);
     expect(names.length).toBeGreaterThan(0);
-    const unused = names.filter(n => !css.includes(`var(${n}`));
+    // 접두사 일치 금지: var(--color-text-muted)가 --color-text를 "쓰인다"로 만들면 안 된다.
+    const unused = names.filter(n => !new RegExp(`var\\(\\s*${n}\\s*[,)]`).test(css));
     expect(unused).toEqual([]);
   });
 
@@ -131,10 +132,39 @@ describe('css/app.css', () => {
     expect(base).toMatch(/overscroll-behavior:\s*none/);
   });
 
-  test('반응 영역이 화면 하단 절반이다 (세로 기준: 자극+띠 / 반응 = 1fr … 50dvh)', () => {
+  test('반응 영역이 화면 하단 절반이다 (세로 기준: 자극+띠 / 반응 = 1fr … 50%)', () => {
     const screen = blockOf(css, '.test-screen {');
     expect(screen).toMatch(/grid-template-areas:\s*"stimulus"\s*"strip"\s*"response"/);
-    expect(screen).toMatch(/grid-template-rows:\s*1fr\s+var\(--strip-height\)\s+50dvh/);
+    expect(screen).toMatch(/grid-template-rows:\s*1fr\s+var\(--strip-height\)\s+50%\s*;/);
+  });
+
+  test('dvh를 모르는 브라우저에서도 반응 영역 행이 유효하다 (grid-template-rows에 dvh를 쓰지 않는다)', () => {
+    // 모르는 단위가 하나라도 있으면 브라우저는 선언 전체를 버리고, rows가 auto가 되어 반응 영역이 사라진다.
+    const screen = blockOf(css, '.test-screen {');
+    const rows = screen.match(/grid-template-rows:([^;]*);/)[1];
+    expect(rows).not.toMatch(/dvh|svh|lvh/);
+    expect(rows.trim().split(/\s+/).at(-1)).toBe('50%');
+    // 그 백분율이 풀리려면 컨테이너 높이가 확정돼 있어야 한다.
+    expect(screen).toMatch(/height:\s*100vh/);
+  });
+
+  test('dvh 선언은 모두 같은 속성의 비-dvh 폴백이 먼저 온다 (모르는 브라우저는 dvh 선언만 버린다)', () => {
+    const rulesOnly = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const offenders = [];
+    for (const [, body] of rulesOnly.matchAll(/\{([^{}]*)\}/g)) {
+      const seen = new Set(); // 지금까지 나온 "dvh 없는" 선언의 속성
+      for (const decl of body.split(';')) {
+        const m = decl.match(/^\s*([\w-]+)\s*:([\s\S]*)$/);
+        if (!m) continue;
+        const [, prop, value] = m;
+        if (/\d(?:dvh|svh|lvh)\b/.test(value)) {
+          if (!seen.has(prop)) offenders.push(`${prop}: ${value.trim()}`);
+        } else {
+          seen.add(prop);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   test('가로 모드에서는 반응 영역이 오른쪽 절반을 차지한다', () => {
@@ -153,7 +183,8 @@ describe('css/app.css', () => {
 
   test('오반응 피드백용 흔들기·경고색 규칙을 두지 않는다', () => {
     const rulesOnly = css.replace(/\/\*[\s\S]*?\*\//g, ''); // 주석에 단어가 나와도 상관없다
-    expect(rulesOnly).not.toMatch(/shake|wobble|error|wrong|incorrect/i);
+    // 막는 것은 오반응 피드백이다. 교사 화면의 정당한 입력 오류 표시(.field-error 등)는 막지 않는다.
+    expect(rulesOnly).not.toMatch(/shake|wobble|wrong|incorrect|fail/i);
   });
 });
 
@@ -167,6 +198,10 @@ describe('js/main.js', () => {
   test('audio.unlock을 pointerdown 제스처에 연결한다', () => {
     expect(main).toMatch(/document\.addEventListener\(\s*'pointerdown'/);
     expect(main).toMatch(/audio\.unlock\(\)/);
+  });
+
+  test('터치에서는 pointerup이 활성화 이벤트이므로 pointerup에도 unlock을 건다', () => {
+    expect(main).toMatch(/document\.addEventListener\(\s*'pointerup'/);
   });
 
   test('입력은 pointerdown이고 click은 쓰지 않는다', () => {

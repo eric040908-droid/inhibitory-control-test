@@ -53,6 +53,23 @@ test('pointerdown마다 audio.unlock을 부른다', async () => {
   expect(audioModule.unlock).toHaveBeenCalledTimes(2);
 });
 
+const pointerup = target => target.dispatchEvent(new Event('pointerup', { bubbles: true }));
+
+test('pointerup만 와도 unlock을 부른다 (터치의 활성화 이벤트는 pointerup)', async () => {
+  const { audioModule } = await boot();
+  pointerup(document.getElementById('app'));
+  expect(audioModule.unlock).toHaveBeenCalledTimes(1);
+});
+
+test('화면이 pointerup 전파를 막아도 unlock은 불린다 (capture)', async () => {
+  const { audioModule } = await boot();
+  const zone = document.createElement('div');
+  zone.addEventListener('pointerup', e => e.stopPropagation());
+  document.getElementById('app').append(zone);
+  pointerup(zone);
+  expect(audioModule.unlock).toHaveBeenCalledTimes(1);
+});
+
 test('화면이 pointerdown 전파를 막아도 unlock은 불린다 (capture)', async () => {
   const { audioModule } = await boot();
   const zone = document.createElement('div');
