@@ -94,10 +94,15 @@ document.addEventListener('pointerup', unlockAudio, { capture: true });
 // 등록은 덤이다: file://로 열었거나, HTTPS가 아니거나, 브라우저가 서비스 워커를 막았으면 실패하고,
 // 그때도 검사는 되어야 한다. 그래서 동기 예외와 거절된 약속을 모두 삼키고 앱 부팅은 건드리지 않는다.
 // 호출은 goSetup() 뒤에 한다 — 등록이 어떻게 되든 첫 화면은 이미 올라가 있다.
+// 주소는 페이지가 아니라 이 모듈 기준으로 푼다. register('sw.js')는 페이지 주소를 기준으로 풀리므로, 끝 슬래시 없는 주소(…/app)로
+// 열면 한 단계 위(/sw.js)로 풀려 404가 나는데, 그 실패를 일부러 삼키므로(아래) 오프라인이 조용히 안 된다.
+// 이 파일은 js/ 아래에 있고 sw.js는 앱 루트에 있다(서비스 워커의 범위는 sw.js가 있는 폴더 = 앱 전체여야 한다). 그래서 ../sw.js다.
+const SW_URL = new URL('../sw.js', import.meta.url);
+
 export function registerServiceWorker(nav = globalThis.navigator) {
   try {
     if (!nav || !('serviceWorker' in nav)) return;
-    Promise.resolve(nav.serviceWorker.register('sw.js')).catch(() => {});
+    Promise.resolve(nav.serviceWorker.register(SW_URL.href)).catch(() => {});
   } catch {
     // 등록할 수 없는 환경 — 오프라인 열기만 포기하고 앱은 그대로 쓴다.
   }

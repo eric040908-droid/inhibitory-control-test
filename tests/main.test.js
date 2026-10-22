@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 // main.js를 실제로 부팅해 본다 (tests/shell.test.js는 파일 내용만 읽는다).
 // 소리는 가짜로 바꿔 unlock 호출을 관찰한다 — 화면 테스트가 쓸 방식과 같다.
 
@@ -295,12 +297,34 @@ describe('서비스 워커 등록', () => {
   const setServiceWorker = (value) => Object.defineProperty(navigator, 'serviceWorker', { value, configurable: true });
   afterEach(() => { delete navigator.serviceWorker; });
 
-  test('부팅하면 sw.js를 등록한다 (페이지 기준 상대 주소)', async () => {
+  // 서비스 워커 주소는 페이지가 아니라 main.js 기준으로 푼다: 끝 슬래시 없는 주소로 열면 register('sw.js')는 한 단계 위로 풀려
+  // 404가 나고, 실패를 일부러 삼키므로 오프라인이 조용히 안 된다(스펙 §4의 하드 제약).
+  test('부팅하면 sw.js를 등록한다: main.js 기준 ../sw.js, 곧 앱 루트의 sw.js (js/sw.js가 아니다)', async () => {
     const register = vi.fn(() => Promise.resolve({}));
     setServiceWorker({ register });
     await boot();
     expect(register).toHaveBeenCalledTimes(1);
-    expect(register).toHaveBeenCalledWith('sw.js');
+    const url = new URL(register.mock.calls[0][0]); // 상대 주소였다면 여기서 던진다: 페이지 위치에 기대지 않는 절대 주소다
+    expect(url.pathname).toBe('/sw.js'); // main.js는 /js/main.js이고 sw.js는 그 한 단계 위
+    expect(url.pathname).not.toBe('/js/sw.js'); // 흔한 실수: main.js 옆을 가리킴. 거기에는 파일이 없다
+  });
+
+  test('main.js 기준 ../sw.js가 가리키는 파일이 배포물에 실제로 있다 (js/main.js와 같은 폴더에는 sw.js가 없다)', () => {
+    expect(existsSync(resolve(process.cwd(), 'js/main.js'))).toBe(true);
+    expect(existsSync(resolve(process.cwd(), 'sw.js'))).toBe(true);
+    expect(existsSync(resolve(process.cwd(), 'js/sw.js'))).toBe(false);
+  });
+
+  test('등록 주소는 문서 위치(끝 슬래시 없는 주소로 열었을 때 등)에 따라 달라지지 않는다', async () => {
+    const register = vi.fn(() => Promise.resolve({}));
+    setServiceWorker({ register });
+    window.history.pushState({}, '', '/app/index.html'); // 문서는 하위 경로에서 열렸다
+    try {
+      await boot();
+    } finally {
+      window.history.pushState({}, '', '/');
+    }
+    expect(new URL(register.mock.calls[0][0]).pathname).toBe('/sw.js');
   });
 
   test('첫 화면이 올라간 뒤에 등록한다 (등록이 부팅을 앞지르지 않는다)', async () => {
