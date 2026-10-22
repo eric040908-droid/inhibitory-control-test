@@ -7,7 +7,7 @@ import { computeMetrics } from '../js/metrics.js';
 import { evaluateBadge } from '../js/badge.js';
 import { interpret } from '../js/interpretation.js';
 import { setStorage, saveSession, listSessions } from '../js/storage.js';
-import { createResultScreen, describeReason, classifyTrial } from '../js/screens/result.js';
+import { createResultScreen, describeReason, classifyTrial, classifySaveError } from '../js/screens/result.js';
 
 // ---- 하네스 ----------------------------------------------------------------------------
 function memoryStorage() {
@@ -1102,6 +1102,206 @@ describe('추이의 기기 혼재 경고', () => {
     mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
     expect(qsa('[data-trend-point]')).toHaveLength(2);
     expect(warning()).toBeNull();
+  });
+});
+
+// ============================================================================================
+// 리뷰 반영 1: 저장 실패 안내는 오류 종류에 따라 다르다. "저장 공간을 정리하라"는 용량 초과일 때만 말한다.
+// 읽을 수 없는 기존 자료(깨진 JSON, 손상, 다른 버전)는 복구할 수 있을 수 있어서, 그때 정리를 시키면 몇 달치 회차가 사라진다.
+// ============================================================================================
+describe('저장 실패 안내: 오류 종류별 문구', () => {
+  const notice = () => qs('[data-notice="save-failed"]');
+  const failWith = (error) => mountResult({ session: sessionFixture({}), saveResult: { ok: false, error } });
+  const CLEANUP = /정리|비우|지우세요|삭제하세요/;
+
+  test('분류: 실제 storage.js가 내는 오류 문자열을 종류별로 가른다', () => {
+    expect(classifySaveError('QuotaExceededError: The quota has been exceeded.')).toBe('quota');
+    expect(classifySaveError('NS_ERROR_DOM_QUOTA_REACHED: x')).toBe('quota');
+    expect(classifySaveError('stored data is not valid JSON')).toBe('unreadable');
+    expect(classifySaveError('stored data has an unknown shape')).toBe('unreadable');
+    expect(classifySaveError('stored sessions[2] is invalid: session.id must be a non-empty string')).toBe('unreadable');
+    expect(classifySaveError('stored data has schema version 2, expected 1')).toBe('unreadable');
+    expect(classifySaveError('localStorage unavailable')).toBe('unavailable');
+    expect(classifySaveError('SecurityError: The operation is insecure.')).toBe('unavailable');
+    expect(classifySaveError('session.id must be a non-empty string')).toBe('other');
+    expect(classifySaveError('뭔가 이상함')).toBe('other');
+    expect(classifySaveError(undefined)).toBe('other');
+    expect(classifySaveError('')).toBe('other');
+  });
+
+  test('용량 초과일 때만 "백업 후 저장 공간을 정리하라"고 안내한다', () => {
+    failWith('QuotaExceededError: The quota has been exceeded.');
+    expect(notice().textContent).toMatch(/저장 공간이 부족/);
+    expect(notice().textContent).toMatch(/저장 공간을 정리/);
+    expect(notice().textContent).toMatch(/백업/);
+  });
+
+  test.each([
+    'stored data is not valid JSON',
+    'stored data has an unknown shape',
+    'stored sessions[0] is invalid: session.id must be a non-empty string',
+    'stored data has schema version 2, expected 1',
+  ])('읽을 수 없는 기존 자료(%s)에는 정리를 안내하지 않고, 지우지 말고 파일로 내려받으라고만 한다', (error) => {
+    failWith(error);
+    const t = notice().textContent;
+    expect(t).not.toMatch(/저장 공간을 정리/);
+    expect(t).not.toMatch(/저장 공간이 부족/);
+    // "정리하세요"류의 지시가 하나도 없다. (경고문의 "지우지 마세요"는 지시가 아니라 금지다.)
+    expect(t.replace(/지우지 마세요|비우지 마세요|삭제하지 마세요/g, '')).not.toMatch(CLEANUP);
+    expect(t).toMatch(/지우지 마세요/);
+    expect(t).toMatch(/파일로 내려받/);
+    expect(t).toMatch(/읽을 수 없/);
+  });
+
+  test('저장소를 쓸 수 없는 경우(차단·사생활 보호 모드)에도 정리를 시키지 않는다', () => {
+    failWith('localStorage unavailable');
+    const t = notice().textContent;
+    expect(t).toMatch(/저장을 막/);
+    expect(t.replace(/지우지 마세요/g, '')).not.toMatch(CLEANUP);
+  });
+
+  test('원인을 알 수 없으면 원인을 단정하지 않고 "저장하지 못했습니다"까지만 쓴다', () => {
+    for (const error of ['session.id must be a non-empty string', '저장 공간이 부족합니다', undefined, 'x']) {
+      failWith(error);
+      const t = notice().textContent;
+      expect(t).toMatch(/저장하지 못했습니다/);
+      expect(t).not.toMatch(/저장 공간이 부족해|저장을 막|읽을 수 없/);
+      expect(t.replace(/지우지 마세요/g, '')).not.toMatch(CLEANUP);
+      screen.unmount(); document.body.replaceChildren();
+    }
+  });
+
+  test('어느 종류든 "이 회차가 기기에 남지 않았고, 화면을 캡처하라"는 말은 있다', () => {
+    for (const error of ['QuotaExceededError: x', 'stored data is not valid JSON', 'localStorage unavailable', 'x']) {
+      failWith(error);
+      expect(notice().textContent).toMatch(/기기에 남지 않/);
+      expect(notice().textContent).toMatch(/캡처/);
+      screen.unmount(); document.body.replaceChildren();
+    }
+  });
+
+  test('오류 원문(영어)은 접어 두고, 교사가 읽는 본문에는 오류 종류를 한국어로 쓴다', () => {
+    failWith('QuotaExceededError: The quota has been exceeded.');
+    const details = notice().querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('QuotaExceededError: The quota has been exceeded.');
+    const body = [...notice().children].filter((el) => el.tagName !== 'DETAILS').map((el) => el.textContent).join(' ');
+    expect(body).not.toContain('QuotaExceededError');
+    expect(body).not.toMatch(/stored data/);
+  });
+
+  test('오류 원문이 없으면 접힌 상자도 없다', () => {
+    failWith(undefined);
+    expect(notice().querySelector('details')).toBeNull();
+  });
+
+  test('통합: 실제 저장소가 용량 초과로 실패하면 정리 안내가 나온다', () => {
+    const real = memoryStorage();
+    setStorage({
+      getItem: real.getItem,
+      removeItem: real.removeItem,
+      setItem: () => { throw new DOMException('full', 'QuotaExceededError'); },
+    });
+    const session = sessionFixture({});
+    const result = saveSession(session);
+    expect(result.ok).toBe(false);
+    mountResult({ session, saveResult: result });
+    expect(notice().textContent).toMatch(/저장 공간을 정리/);
+  });
+
+  test('통합: 실제 저장소에 깨진 자료가 있어 저장이 거부되면 정리 안내가 나오지 않는다', () => {
+    const real = memoryStorage();
+    real.setItem('inhibitoryControlTest', '{ broken');
+    setStorage(real);
+    const session = sessionFixture({});
+    const result = saveSession(session);
+    expect(result.ok).toBe(false);
+    expect(real.getItem('inhibitoryControlTest')).toBe('{ broken'); // 덮어쓰지 않았다
+    mountResult({ session, saveResult: result });
+    expect(notice().textContent).not.toMatch(/저장 공간을 정리/);
+    expect(notice().textContent).toMatch(/파일로 내려받/);
+  });
+});
+
+// ============================================================================================
+// 리뷰 반영 2: 측정된 것이 없으면 "특징이 없었다"고 말하지 않는다(깨끗한 결과처럼 읽힌다).
+// ============================================================================================
+describe('측정된 문항이 없는 회차의 해석 구역', () => {
+  test('문항 0개: "측정된 문항이 없어 해석할 수 없습니다"라고 말하고, "특징이 없었다"고 말하지 않는다', () => {
+    mountResult({ session: sessionFixture({ responses: [], trialCount: 0 }) });
+    const box = qs('[data-interpretation]');
+    expect(box).not.toBeNull();
+    expect(box.dataset.unmeasured).toBe('true');
+    expect(box.dataset.empty).toBeUndefined();
+    expect(box.textContent).toMatch(/측정된 문항이 없어 해석할 수 없습니다/);
+    expect(box.textContent).not.toMatch(/특징이 없|기준에 걸리지 않/);
+  });
+
+  test('전원 무효: 같은 문구, 그리고 배지가 말하는 것과 어긋나지 않는다', () => {
+    mountResult({ session: sessionFixture({ responses: [invalid(), invalid('nogo'), invalid()] }) });
+    const box = qs('[data-interpretation]');
+    expect(box.dataset.unmeasured).toBe('true');
+    expect(box.textContent).toMatch(/측정된 문항이 없어 해석할 수 없습니다/);
+    expect(box.textContent).not.toMatch(/특징이 없|기준에 걸리지 않/);
+    expect(qs('[data-badge]').dataset.status).not.toBe('ok');
+  });
+
+  test('유효 문항이 있으면 이 문구가 아니다 (평범한 회차는 그대로 "특징이 없었습니다")', () => {
+    mountResult({ session: sessionFixture({ responses: [go(500), go(800), nogo(null), nogo(null), nogo(null), nogo(null), nogo(null), nogo(null), nogo(null), nogo(null)] }) });
+    const box = qs('[data-interpretation]');
+    expect(box.dataset.unmeasured).toBeUndefined();
+    expect(box.textContent).not.toMatch(/측정된 문항이 없/);
+  });
+});
+
+// ============================================================================================
+// 리뷰 반영 3: 배지가 "해석 불가"이면 가장 큰 숫자(억제 실패)에도 단서가 있어야 한다. 사람은 배지보다 큰 숫자를 먼저 본다.
+// ============================================================================================
+describe('해석 불가 회차의 타일 표시', () => {
+  const allTiles = ['commissions', 'hits', 'omissions', 'meanRt', 'consistency', 'anticipatory'];
+  // 누락이 Go의 40% 이상 → 해석 불가. 억제 실패 수치는 멀쩡해 보인다(0/10).
+  const uninterpretable = () => [...Array(6).fill(0).map(() => go(null)), ...Array(4).fill(0).map(() => go(500)), ...Array(10).fill(0).map(() => nogo(null))];
+
+  test('전제: 이 회차의 배지는 해석 불가이고 No-Go는 충분하다', () => {
+    const m = computeMetrics(uninterpretable());
+    expect(evaluateBadge(m).status).toBe('uninterpretable');
+    expect(m.noGoTrials).toBeGreaterThanOrEqual(THRESHOLDS.minNoGoTrials);
+  });
+
+  test('요약 타일 6개 전부에 참고용 표시(data-reference)와 "해석 불가" 글자가 붙는다', () => {
+    mountResult({ session: sessionFixture({ responses: uninterpretable() }) });
+    for (const name of allTiles) {
+      expect(tile(name).dataset.reference).toBe('true');
+      expect(tile(name).dataset.unreliable).toBe('true');
+      expect(tile(name).textContent).toMatch(/해석 불가 판정/);
+    }
+  });
+
+  test('억제 실패 숫자 바로 옆에 단서가 있다 (큰 숫자 다음 줄)', () => {
+    mountResult({ session: sessionFixture({ responses: uninterpretable() }) });
+    expect(tile('commissions').querySelector('[data-reference-note]').textContent).toMatch(/이 숫자로 학생을 판단하지 마세요/);
+  });
+
+  test('No-Go 부족까지 겹치면 두 이유가 모두 적힌다', () => {
+    mountResult({ session: sessionFixture({ responses: [go(null), go(null), go(500), nogo(null)] }) });
+    const t = tile('commissions').textContent;
+    expect(t).toMatch(/해석 불가 판정/);
+    expect(t).toMatch(/참아야 할 그림이 1개뿐/);
+  });
+
+  test('전반/후반 억제 실패 횟수에도 같은 단서가 붙는다', () => {
+    mountResult({ session: sessionFixture({ responses: uninterpretable() }) });
+    expect(qs('[data-halves]').dataset.reference).toBe('true');
+    expect(text('[data-halves]')).toMatch(/해석 불가 판정/);
+  });
+
+  test('해석 불가가 아니면 타일에 unreliable 표시가 없다 (양호·주의·참고용 회차)', () => {
+    mountResult({ session: sessionFixture({ level: 2, length: 'long' }) });
+    for (const name of allTiles) {
+      expect(tile(name).dataset.unreliable).toBeUndefined();
+      expect(tile(name).dataset.reference).toBeUndefined();
+    }
   });
 });
 

@@ -229,6 +229,16 @@ input, select {
   margin-bottom: 0;
 }
 
+.notice-details {
+  margin-top: var(--space-1);
+  font-size: 0.875rem;
+  overflow-wrap: break-word;
+}
+
+.notice-details summary {
+  cursor: pointer;
+}
+
 .notice-title {
   font-weight: 700;
 }

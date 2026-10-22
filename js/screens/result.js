@@ -137,20 +137,35 @@ function consistencyNote(metrics) {
   return `반응시간 편차 ${ms(metrics.rtSd)}`;
 }
 
-function tile({ key, label, hint, value, note, primary = false, reference = false, referenceNote = null }) {
+// reference: 참고용 표시(점선 테두리). unreliable: 배지가 "해석 불가"라서 붙은 표시(더 강한 단서).
+// referenceNotes: 타일 아래 글자. 색·테두리만으로 알리지 않는다.
+function tile({ key, label, hint, value, note, primary = false, reference = false, unreliable = false, referenceNotes = [] }) {
   return h(
     'div',
-    { class: `tile${primary ? ' tile-primary' : ''}`, dataset: { tile: key, ...(primary ? { primary: 'true' } : {}), ...(reference ? { reference: 'true' } : {}) } },
+    {
+      class: `tile${primary ? ' tile-primary' : ''}`,
+      dataset: {
+        tile: key,
+        ...(primary ? { primary: 'true' } : {}),
+        ...(reference ? { reference: 'true' } : {}),
+        ...(unreliable ? { unreliable: 'true' } : {}),
+      },
+    },
     h('p', { class: 'tile-label', dataset: { tileLabel: '' }, text: label }),
     h('p', { class: 'tile-hint', text: hint }),
     h('p', { class: 'tile-value', dataset: { tileValue: '' }, text: value }),
     h('p', { class: 'tile-note text-muted', dataset: { tileNote: '' }, text: note }),
-    reference ? h('p', { class: 'tile-reference', dataset: { referenceNote: '' }, text: referenceNote }) : null,
+    ...referenceNotes.map((text) => h('p', { class: 'tile-reference', dataset: { referenceNote: '' }, text })),
   );
 }
 
+// 배지가 "해석 불가"이면 억제 실패를 포함한 모든 숫자에 단서를 붙인다. 사람은 배지보다 큰 숫자를 먼저 본다.
+const UNRELIABLE_NOTE = '해석 불가 판정 — 이 숫자로 학생을 판단하지 마세요.';
+
 function tiles(metrics, badge) {
   const noGoShort = badge.reasons.includes('tooFewNoGo'); // 설정 화면이 약속한 "억제 지표는 참고용" — 기준은 badge.js 한 곳에서 온다
+  const unreliable = badge.status === 'uninterpretable';
+  const general = unreliable ? { reference: true, unreliable: true, referenceNotes: [UNRELIABLE_NOTE] } : {};
   const goEarly = Math.max(0, metrics.goTrials - metrics.hits - metrics.omissions);
   const anticipatorySeconds = THRESHOLDS.anticipatoryMs / 1000;
 
@@ -168,11 +183,16 @@ function tiles(metrics, badge) {
       value: metrics.noGoTrials === 0 ? DASH : String(metrics.commissions),
       note: metrics.noGoTrials === 0 ? '참아야 할 그림이 없었습니다' : `참아야 할 그림 ${metrics.noGoTrials}개 중`,
       primary: true,
-      reference: noGoShort,
-      referenceNote: `참고용 — 참아야 할 그림이 ${metrics.noGoTrials}개뿐이라(${THRESHOLDS.minNoGoTrials}개 이상 필요) 억제 지표로 해석하기엔 부족합니다.`,
+      reference: noGoShort || unreliable,
+      unreliable,
+      referenceNotes: [
+        ...(unreliable ? [UNRELIABLE_NOTE] : []),
+        ...(noGoShort ? [`참고용 — 참아야 할 그림이 ${metrics.noGoTrials}개뿐이라(${THRESHOLDS.minNoGoTrials}개 이상 필요) 억제 지표로 해석하기엔 부족합니다.`] : []),
+      ],
     }),
     tile({
       key: 'hits',
+      ...general,
       label: '정반응',
       hint: '눌러야 할 때 누름',
       value: metrics.goTrials === 0 ? DASH : String(metrics.hits),
@@ -180,6 +200,7 @@ function tiles(metrics, badge) {
     }),
     tile({
       key: 'omissions',
+      ...general,
       label: '누락',
       hint: '눌러야 할 때 안 누름 · 억제가 아니라 주의력 문제',
       value: metrics.goTrials === 0 ? DASH : String(metrics.omissions),
@@ -187,6 +208,7 @@ function tiles(metrics, badge) {
     }),
     tile({
       key: 'meanRt',
+      ...general,
       label: '평균 반응속도',
       hint: '정반응만 계산',
       value: metrics.meanRt === null ? DASH : ms(metrics.meanRt),
@@ -194,6 +216,7 @@ function tiles(metrics, badge) {
     }),
     tile({
       key: 'consistency',
+      ...general,
       label: '반응 일관성',
       hint: '정반응 반응시간이 들쭉날쭉한 정도',
       value: CONSISTENCY_LABEL[metrics.consistency] ?? DASH,
@@ -201,6 +224,7 @@ function tiles(metrics, badge) {
     }),
     tile({
       key: 'anticipatory',
+      ...general,
       label: '조급 반응',
       hint: `${anticipatorySeconds}초보다 빨리 누름 · 보고 누른 반응이 아님`,
       value: metrics.validTrials === 0 ? DASH : String(metrics.anticipatory),
@@ -316,12 +340,14 @@ function halfCard(key, title, half) {
 
 function halvesSection(metrics, badge) {
   const noGoShort = badge.reasons.includes('tooFewNoGo');
+  const unreliable = badge.status === 'uninterpretable';
   return h(
     'section',
-    { class: 'result-section', dataset: { halves: '', ...(noGoShort ? { reference: 'true' } : {}) } },
+    { class: 'result-section', dataset: { halves: '', ...(noGoShort || unreliable ? { reference: 'true' } : {}) } },
     h('h2', { text: '전반과 후반' }),
     h('p', { text: '얼마나 버티는지 봅니다. 유효 문항을 앞 절반과 뒤 절반으로 나눴고, 문항 수가 홀수면 앞쪽이 하나 더 많습니다. 뒤로 갈수록 억제 실패가 늘거나 반응이 느려지면 회기를 짧게 끊어 반복해 보세요.' }),
     h('div', { class: 'halves' }, halfCard('first', '앞 절반', metrics.halves.first), halfCard('second', '뒤 절반', metrics.halves.second)),
+    unreliable ? h('p', { class: 'text-muted', text: UNRELIABLE_NOTE }) : null,
     noGoShort ? h('p', { class: 'text-muted', text: '참고용 — 참아야 할 그림이 적어 앞뒤로 나누면 억제 실패 횟수는 더 믿기 어렵습니다.' }) : null,
   );
 }
@@ -447,6 +473,15 @@ const EMPTY_INTERPRETATION =
 
 function interpretationSection(metrics, badge) {
   if (badge.status === 'uninterpretable') return null; // 배지가 이미 "해석하지 말라"고 했다. 그 아래에 해석을 얹지 않는다.
+  if (metrics.validTrials === 0) {
+    // 아무것도 측정되지 않았는데 "특징이 없었다"고 하면 깨끗한 결과로 읽힌다. 배지가 말하는 것과도 어긋난다.
+    return h(
+      'section',
+      { class: 'result-section', dataset: { interpretation: '', unmeasured: 'true' } },
+      h('h2', { text: '해석 한 줄' }),
+      h('p', { text: '측정된 문항이 없어 해석할 수 없습니다. 문항이 하나도 기록되지 않았거나, 모두 화면이 가려져 무효가 되었습니다.' }),
+    );
+  }
   const sentences = interpret(metrics, badge);
   const box = h('section', { class: 'result-section', dataset: { interpretation: '', ...(sentences.length === 0 ? { empty: 'true' } : {}) } }, h('h2', { text: '해석 한 줄' }));
   if (sentences.length > 0) box.append(h('ul', { class: 'interpretation' }, ...sentences.map((s) => h('li', { text: s }))));
@@ -509,22 +544,62 @@ function headerSection(session, responses) {
 }
 
 // ---- 안내 상자 -----------------------------------------------------------------------------
-function noticeBox(kind, title, paragraphs) {
+function noticeBox(kind, title, paragraphs, extra = null) {
   return h(
     'div',
     { class: 'notice', dataset: { notice: kind } },
     h('p', { class: 'notice-title' }, h('span', { 'aria-hidden': 'true', text: '⚠ ' }), title),
     ...paragraphs.map((text) => h('p', { text })),
+    extra,
   );
 }
 
+// storage.js가 { ok: false, error }로 돌려주는 오류 문자열을 종류로 가른다. 종류에 따라 교사에게 시킬 일이 정반대다:
+//   quota       용량 초과 → 백업 후 저장 공간을 정리하면 된다.
+//   unreadable  이미 저장된 자료를 읽을 수 없음(깨진 JSON, 손상, 다른 버전) → 복구할 수 있을 수 있다. 정리(삭제)를 시키면 몇 달치 회차가 사라진다.
+//   unavailable 저장소 접근 불가(차단·사생활 보호 모드)
+//   other       그 밖, 또는 알 수 없음 → 원인을 단정하지 않는다. 틀린 원인은 없는 원인보다 나쁘다.
+// unreadable을 가장 먼저 가른다("stored ..."로 시작). 그 문장들에 다른 종류의 낱말이 섞여도 정리를 시키지 않는 쪽으로 틀어지게 하려는 것이다.
+export function classifySaveError(error) {
+  if (typeof error !== 'string' || error === '') return 'other';
+  if (/^stored /.test(error)) return 'unreadable';
+  if (/quota/i.test(error)) return 'quota';
+  if (/unavailable|SecurityError/i.test(error)) return 'unavailable';
+  return 'other';
+}
+
+const SAVE_FAILED_TEXT = {
+  quota: [
+    '저장 공간이 부족해 이 기기에 저장하지 못했습니다.',
+    '이력 화면에서 기록을 내보내 백업한 뒤 브라우저의 이 사이트 저장 공간을 정리하세요. 이 회차는 다시 저장할 수 없고, 필요하면 다시 검사해야 합니다.',
+  ],
+  unreadable: [
+    '이 기기에 이미 저장된 기록을 읽을 수 없는 상태라 이 회차를 저장하지 못했습니다. 기존 기록을 덮어쓰지 않으려고 저장을 거부한 것입니다.',
+    '기존 기록은 복구할 수 있을 수 있으니 브라우저의 사이트 데이터나 저장 공간을 지우지 마세요. 먼저 이력 화면에서 저장된 기록을 파일로 내려받으세요. 이 회차는 다시 저장할 수 없습니다.',
+  ],
+  unavailable: [
+    '브라우저가 저장을 막고 있어 이 기기에 저장하지 못했습니다. 사생활 보호(시크릿) 모드이거나 사이트 데이터 저장이 꺼져 있을 수 있습니다.',
+    '이 상태에서는 검사 결과가 기기에 남지 않습니다. 일반 창으로 열어 다시 검사하세요.',
+  ],
+  other: [
+    '이 회차를 저장하지 못했습니다.',
+    '이 회차는 다시 저장할 수 없고, 필요하면 다시 검사해야 합니다.',
+  ],
+};
+
 function saveFailedNotice(saveResult) {
-  const detail = typeof saveResult.error === 'string' && saveResult.error !== '' ? ` (오류: ${saveResult.error})` : '';
+  const kind = classifySaveError(saveResult.error);
+  const [cause, advice] = SAVE_FAILED_TEXT[kind];
+  const raw = typeof saveResult.error === 'string' && saveResult.error !== '' ? saveResult.error : null;
+  // 오류 원문은 영어이거나 기술 용어라 본문에 두지 않고, 문의할 때 쓰도록 접어 둔다.
+  const details = raw
+    ? h('details', { class: 'notice-details' }, h('summary', { text: '오류 원문 보기 (문의할 때 필요합니다)' }), h('p', { text: raw }))
+    : null;
   return noticeBox('save-failed', '이 회차는 저장되지 않았습니다', [
-    `저장 공간이 부족하거나 브라우저가 저장을 막아 이 기기에 저장하지 못했습니다.${detail}`,
+    cause,
     '지금은 이 결과를 볼 수 있지만, 이 화면을 닫으면 이 회차는 기기에 남지 않아 나중에 이력에서 찾을 수 없습니다. 닫기 전에 화면을 캡처해 두세요.',
-    '저장 공간 문제라면 이력 화면에서 기록을 내보내 백업한 뒤 브라우저의 이 사이트 저장 공간을 정리하세요. 이 회차는 다시 저장할 수 없고, 필요하면 다시 검사해야 합니다.',
-  ]);
+    advice,
+  ], details);
 }
 
 function abortedNotice(session, responses) {
