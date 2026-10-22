@@ -6,6 +6,7 @@ import { createEngine } from './engine.js';
 import { createSetupScreen } from './screens/setup.js';
 import { createPracticeScreen } from './screens/practiceScreen.js';
 import { createTaskScreen } from './screens/task.js';
+import { createResultScreen } from './screens/result.js';
 import { createFlow } from './flow.js';
 
 // ---- deps 조립 지점 -----------------------------------------------------------------------
@@ -35,6 +36,7 @@ export const router = createRouter(rootEl, {
   setup: createSetupScreen(deps),
   practice: createPracticeScreen(deps),
   test: createTaskScreen(deps),
+  result: createResultScreen(deps),
 });
 
 // 화면 이동은 flow가 맡는다(설정 → 연습 → 본 검사 → 회차 저장). 화면들은 서로를 모른다.
@@ -42,12 +44,16 @@ function goSetup() {
   router.go('setup', { onStart: flow.start }); // Task 14가 onHistory를 더한다
 }
 
+// 검사가 끝나면(완료는 마무리 애니메이션 뒤, 중단은 곧바로) 결과 화면으로 간다. 저장이 실패했어도 간다 —
+// saveResult({ ok, error })를 넘겨 결과 화면이 "이 회차는 저장되지 않았습니다"를 교사에게 알린다.
+function goResult(session, saveResult) {
+  router.go('result', { session, saveResult, onBack: goSetup });
+}
+
 const flow = createFlow({
   router,
   goSetup,
-  // Task 13이 이 자리를 결과 화면 이동으로 바꾼다: router.go('result', { session, saveResult, onBack: goSetup })
-  // 결과 화면이 생기기 전에는 저장된 회차를 두고 설정 화면으로 돌아간다.
-  onSessionEnd: () => goSetup(),
+  onSessionEnd: goResult,
 });
 
 // 소리는 사용자 제스처 안에서만 풀린다(브라우저 정책). 한 번만 걸고 떼는 대신 매번 부르기로 했다:

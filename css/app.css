@@ -16,6 +16,8 @@
   --color-response: #dbe9ff;
   --color-response-pressed: #b9d4fb;
   --color-strip: #f1ece0;
+  /* 결과 화면: 억제 실패·누락·해석 불가를 알리는 색. 흰 바탕과 7:1 이상이고, 색만으로 알리지 않는다(기호·모양·글자를 함께 쓴다). */
+  --color-alert: #a8320a;
 
   /* 간격 */
   --space-1: 0.5rem;
@@ -523,6 +525,444 @@ input, select {
 @keyframes countdown-fill {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
+}
+
+/* ---- 결과 화면 (교사 화면, 글을 읽는다) ---------------------------------------
+   세로 모드 스마트폰이 기준이다. 타일은 2열로 접히고, 문항별 흐름 띠는 가로로 밀어서 본다(최대 100문항).
+   구분은 색만으로 하지 않는다: 글자 기호(●▲○✕▽), 막대 모양(채움·속 빈·빗금·점선), 줄(고/노), 높이, 테두리 굵기·선 모양을 함께 쓴다. */
+
+.result-top {
+  margin-bottom: var(--space-2);
+}
+
+.result-screen h2 {
+  margin: 0 0 var(--space-1);
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.result-screen h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-body);
+}
+
+.result-screen ul,
+.result-screen ol {
+  margin: 0 0 var(--space-2);
+  padding-left: 1.25rem;
+}
+
+.result-screen li {
+  margin-bottom: var(--space-1);
+}
+
+.result-section {
+  margin: 0 0 var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 0.125rem solid var(--color-border);
+}
+
+.kv-list {
+  margin: 0 0 var(--space-2);
+}
+
+.kv {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0.25rem 0;
+}
+
+.kv dt {
+  flex: 0 0 7.5rem;
+  font-weight: 700;
+}
+
+.kv dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;   /* 별칭·테마 id처럼 공백 없이 길게 이어지는 글자만 꺾는다 */
+}
+
+/* 배지: 상태마다 기호·이름·테두리 모양이 다르다(색이 아니라). 해석 불가는 면을 채워 가장 눈에 띈다. */
+.badge {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2);
+  border: 0.25rem solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.badge p {
+  margin: 0 0 var(--space-1);
+}
+
+.badge-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+
+.badge[data-status="reference"] {
+  border-style: dashed;
+}
+
+.badge[data-status="caution"] {
+  border-style: double;
+  border-width: 0.5rem;
+}
+
+.badge[data-status="uninterpretable"] {
+  border-color: var(--color-alert);
+  background: var(--color-strip);
+}
+
+.badge-reasons {
+  margin: var(--space-1) 0 0;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.tile {
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 0.125rem solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.tile p {
+  margin: 0;
+}
+
+.tile-primary,
+.tile[data-tile="anticipatory"] {
+  grid-column: 1 / -1;
+}
+
+/* 억제 실패는 가장 눈에 띄게: 굵은 테두리와 큰 숫자. 참고용이면 선이 점선으로 바뀌고 글자로도 적힌다. */
+.tile-primary {
+  border-width: 0.375rem;
+}
+
+.tile[data-reference="true"] {
+  border-style: dashed;
+}
+
+.tile-label {
+  font-weight: 700;
+}
+
+.tile-hint,
+.tile-note,
+.tile-reference {
+  font-size: 0.875rem;
+}
+
+.tile-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+
+.tile-primary .tile-value {
+  font-size: 2.75rem;
+  line-height: 1.2;
+}
+
+.tile-reference {
+  margin-top: 0.25rem;
+  font-weight: 700;
+}
+
+.overlap-note {
+  font-size: 0.9375rem;
+}
+
+/* 문항별 흐름 — 위: 전체를 한 화면 폭에 줄인 요약. 아래: 문항마다 막대 하나, 옆으로 민다. */
+.flow-caption {
+  margin-bottom: var(--space-1);
+  font-size: 0.9375rem;
+}
+
+.overview {
+  display: grid;
+  grid-template-rows: 1.25rem 1.25rem;
+  gap: 0.125rem;
+  margin-bottom: var(--space-2);
+  padding: 0.25rem;
+  border: 0.125rem solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.overview-cell {
+  grid-row: 1;
+  align-self: end;
+  min-width: 0;
+  height: 40%;
+  background: var(--color-accent);
+}
+
+.overview-cell[data-type="nogo"] {
+  grid-row: 2;
+  align-self: start;
+}
+
+.overview-cell[data-kind="early"] {
+  height: 70%;
+}
+
+.overview-cell[data-kind="correctRejection"] {
+  background: var(--color-text-muted);
+}
+
+.overview-cell[data-kind="commission"],
+.overview-cell[data-kind="omission"] {
+  height: 100%;
+  background: var(--color-alert);
+}
+
+.overview-cell[data-kind="invalid"] {
+  background: var(--color-strip);
+}
+
+.trial-strip {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;   /* 옆으로 밀다가 브라우저의 뒤로 가기 제스처가 걸리지 않게 */
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-1);
+  border: 0.125rem solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.trial-strip-inner {
+  display: flex;
+  gap: 0.125rem;
+  width: max-content;
+}
+
+.trial-bar {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 1.25rem;
+}
+
+.trial-mark {
+  height: 1rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.trial-plot {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 6rem;
+  border-bottom: 0.125rem solid var(--color-border);
+}
+
+.bar-fill {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0.25rem;
+}
+
+.trial-type {
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.trial-no {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 1rem;
+  font-size: 0.625rem;
+  line-height: 1rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* 막대 모양: 정반응 = 채움, 조급 = 속 빈 막대, 억제 실패 = 빗금, 참기 성공 = 속 빈 동그라미, 누락 = 점선 칸, 무효 = 점. */
+.trial-bar[data-kind="hit"] .bar-fill,
+.legend-swatch[data-kind="hit"] {
+  background: var(--color-accent);
+}
+
+.trial-bar[data-kind="early"] .bar-fill,
+.legend-swatch[data-kind="early"] {
+  border: 0.125rem solid var(--color-accent);
+  background: var(--color-surface);
+}
+
+.trial-bar[data-kind="commission"] .bar-fill,
+.legend-swatch[data-kind="commission"] {
+  border: 0.125rem solid var(--color-alert);
+  background: repeating-linear-gradient(45deg, var(--color-alert) 0 0.25rem, var(--color-surface) 0.25rem 0.5rem);
+}
+
+.trial-bar[data-kind="correctRejection"] .bar-fill,
+.legend-swatch[data-kind="correctRejection"] {
+  border: 0.125rem solid var(--color-text);
+  border-radius: 50%;
+  background: var(--color-surface);
+}
+
+.trial-bar[data-kind="omission"] .bar-fill,
+.legend-swatch[data-kind="omission"] {
+  border: 0.125rem dashed var(--color-alert);
+  background: var(--color-surface);
+}
+
+.trial-bar[data-kind="invalid"] .bar-fill,
+.legend-swatch[data-kind="invalid"] {
+  border: 0.125rem dotted var(--color-text-muted);
+  background: var(--color-strip);
+}
+
+.bar-fill[data-empty="true"] {
+  height: 0.75rem;
+}
+
+.trial-bar[data-kind="commission"] .trial-mark,
+.trial-bar[data-kind="omission"] .trial-mark {
+  color: var(--color-alert);
+  font-weight: 700;
+}
+
+.legend {
+  display: grid;
+  gap: 0.25rem;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9375rem;
+}
+
+.result-screen .legend {
+  padding-left: 0;
+}
+
+.legend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin: 0;
+}
+
+.legend-mark {
+  flex: none;
+  width: 1rem;
+  text-align: center;
+}
+
+.legend-swatch {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.25rem;
+}
+
+.halves {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.half {
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 0.125rem solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.half p {
+  margin: 0 0 0.25rem;
+}
+
+.half strong {
+  font-size: 1.25rem;
+}
+
+[data-halves][data-reference="true"] .half {
+  border-style: dashed;
+}
+
+.trend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result-screen .trend {
+  padding-left: 0;
+}
+
+.trend-point {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 0.25rem var(--space-1);
+  align-items: center;
+  margin: 0;
+  padding: var(--space-1) 0 var(--space-1) var(--space-1);
+  border-bottom: 0.125rem solid var(--color-strip);
+}
+
+.trend-point[data-current="true"] {
+  border-left: 0.375rem solid var(--color-accent);
+  font-weight: 700;
+}
+
+.trend-when {
+  white-space: nowrap;
+}
+
+.trend-track {
+  height: 1rem;
+  overflow: hidden;
+  border: 0.125rem solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.trend-bar {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.trend-rate,
+.trend-tag,
+.trend-now {
+  grid-column: 2;
+  font-size: 0.9375rem;
+}
+
+.cautions li {
+  margin-bottom: var(--space-1);
+}
+
+.interpretation li {
+  font-size: 1.125rem;
+}
+
+.result-screen > .btn-block {
+  margin-top: var(--space-2);
 }
 
 /* 가로로 돌려도 깨지지 않게: 반응 영역이 오른쪽 절반, 자극과 띠가 왼쪽 절반. */

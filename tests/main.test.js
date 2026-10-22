@@ -10,6 +10,9 @@ vi.mock('../js/audio.js', () => ({
 }));
 
 // main.js는 import 때 document에 리스너를 건다. 같은 jsdom 문서를 쓰는 다음 테스트로 새지 않게 걷는다.
+// 결과 화면이 맨 위로 스크롤한다. jsdom은 scrollTo를 구현하지 않아 부르면 콘솔에 오류를 찍는다.
+beforeEach(() => { window.scrollTo = vi.fn(); });
+
 const attached = [];
 const realAdd = document.addEventListener.bind(document);
 afterEach(() => {
@@ -158,21 +161,26 @@ describe('설정 화면에서 이어지는 흐름', () => {
     expect(JSON.parse(localStorage.getItem('inhibitoryControlTest')).lastSetup.level).toBeNull();
   });
 
-  test('실제 엔진·실제 시계로 끝까지 돌리면 완료 회차가 저장되고 설정 화면으로 돌아온다', async () => {
+  test('실제 엔진·실제 시계로 끝까지 돌리면 완료 회차가 저장되고 결과 화면이 뜬다', async () => {
     const { main } = await boot();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
     startFromSetup({ level: 1 });
     expect(main.router.current()).toBe('test');
     vi.advanceTimersByTime(10 * 60 * 1000); // 아무것도 누르지 않고 끝까지 (전부 누락)
-    expect(main.router.current()).toBe('setup');
+    expect(main.router.current()).toBe('result');
+    expect(document.querySelector('[data-screen="result"]')).not.toBeNull();
+    expect(document.querySelector('[data-notice="save-failed"]')).toBeNull();
     const sessions = storedSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({ studentAlias: '흐름확인', level: 1, length: 'short', complete: true, practice: null });
     expect(sessions[0].responses).toHaveLength(sessions[0].trialCount);
     expect(sessions[0].responses.every(r => r.invalid === false)).toBe(true);
+    // 결과 화면의 돌아가기(click)는 설정 화면으로 보낸다.
+    click(document.querySelector('[data-action="back"]'));
+    expect(main.router.current()).toBe('setup');
   });
 
-  test('중단 버튼을 길게 누르면 미완료 회차가 저장된다', async () => {
+  test('중단 버튼을 길게 누르면 미완료 회차가 저장되고 "중단" 결과 화면이 뜬다', async () => {
     const { main } = await boot();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
     startFromSetup({ level: 1 });
@@ -180,9 +188,32 @@ describe('설정 화면에서 이어지는 흐름', () => {
     const btn = document.querySelector('[data-abort]');
     btn.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     vi.advanceTimersByTime(1000);
-    expect(main.router.current()).toBe('setup');
+    expect(main.router.current()).toBe('result');
+    expect(document.querySelector('[data-notice="aborted"]')).not.toBeNull();
     const sessions = storedSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0].complete).toBe(false);
+  });
+
+  test('저장이 실패해도 결과 화면이 뜨고, 교사에게 저장되지 않았다고 알린다', async () => {
+    const { main } = await boot();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    // 회차를 쓰는 저장만 막는다(지난 설정 저장은 회차가 비어 있어 통과한다).
+    const realSetItem = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (String(value).includes('"complete"')) throw new DOMException('full', 'QuotaExceededError');
+      return realSetItem.call(this, key, value);
+    });
+    try {
+      startFromSetup({ level: 1 });
+      vi.advanceTimersByTime(10 * 60 * 1000);
+      expect(main.router.current()).toBe('result');
+      const notice = document.querySelector('[data-notice="save-failed"]');
+      expect(notice).not.toBeNull();
+      expect(notice.textContent).toContain('QuotaExceededError');
+      expect(storedSessions()).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
