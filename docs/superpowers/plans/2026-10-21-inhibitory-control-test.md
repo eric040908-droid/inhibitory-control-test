@@ -1122,7 +1122,9 @@ test('pointerdown으로 반응을 받고 click은 쓰지 않는다', () => {
 });
 
 test('정반응과 참기 성공에 격자 칸이 하나씩 채워진다', () => {
-  mountTask({ trials: [goTrial(0), nogoTrial(1)] });
+  // 문항 3개 → 격자 2칸(floor(3 × 0.70) = 2). 문항 2개는 1칸뿐이라
+  // 두 칸을 채우는 것을 확인할 수 없다.
+  mountTask({ trials: [goTrial(0), nogoTrial(1), goTrial(2)] });
   completeTrial({ type: 'go', rtMs: 500 });
   expect(filledCells()).toBe(1);
   completeTrial({ type: 'nogo', rtMs: null });
