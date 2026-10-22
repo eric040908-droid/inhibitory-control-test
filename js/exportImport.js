@@ -25,9 +25,18 @@ const CSV_EOL = '\r\n';
 const flag = (value) => (typeof value === 'boolean' ? (value ? 1 : 0) : null);
 
 // 값 없음(null/undefined)은 빈 칸이다. "null"이라는 글자를 쓰면 R·pandas가 문자열로 읽어 숫자 열이 깨진다.
+//
+// 수식 주입 방어: 글자 값이 = + - @ 로 시작하면 엑셀·시트가 수식으로 실행한다(별칭이 `=HYPERLINK(...)`이면 열 때 살아난다).
+// 별칭은 교사가 입력하거나 가져온 파일에서 오므로 믿을 수 없다. 앞에 작은따옴표를 붙여 글자로 읽히게 한다.
+// 대가: 엑셀이 CSV를 열 때 그 따옴표를 글자로 보여 주고, 분석 스크립트가 별칭을 읽으면 따옴표가 붙어 있다 — 해당 별칭만의 일이다.
+// 숫자(number)에는 걸지 않는다: 음수 반응시간 같은 값은 수식이 아니고, 따옴표가 붙으면 숫자 열이 문자열이 된다.
+// (OWASP는 탭·CR로 시작하는 값도 꼽는다. 별칭은 입력 때 앞뒤 공백을 떼므로 화면에서는 닿지 않는 경우다.)
+const FORMULA_START = /^[=+\-@]/;
+
 function csvCell(value) {
   if (value === null || value === undefined) return '';
-  const text = String(value);
+  let text = String(value);
+  if (typeof value === 'string' && FORMULA_START.test(text)) text = `'${text}`;
   // 쉼표·큰따옴표·줄바꿈(CR 또는 LF)이 있으면 큰따옴표로 감싸고, 안의 큰따옴표는 두 번 적는다.
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
