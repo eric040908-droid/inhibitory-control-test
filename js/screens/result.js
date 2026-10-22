@@ -75,7 +75,8 @@ const KINDS = {
   correctRejection: { label: '참기 성공', mark: '○', desc: '참아야 할 때 참았습니다(No-Go 정반응)' },
   commission: { label: '억제 실패', mark: '✕', desc: '참아야 할 때 눌렀습니다' },
   omission: { label: '누락', mark: '▽', desc: '눌러야 할 때 누르지 않았습니다' },
-  invalid: { label: '무효', mark: '·', desc: '화면이 가려져 지표에서 뺀 문항입니다' },
+  // 엔진은 진행 중이던 문항을 두 경우에 무효로 닫는다: 화면이 가려질 때(pause)와 검사를 중단할 때(abort). 어느 쪽인지는 기록에 남지 않는다.
+  invalid: { label: '무효', mark: '·', desc: '화면이 가려졌거나 검사를 중단해 지표에서 뺀 문항입니다' },
 };
 const KIND_ORDER = ['hit', 'early', 'correctRejection', 'commission', 'omission', 'invalid'];
 const TYPE_LABEL = { go: '고', nogo: '노' };
@@ -103,7 +104,7 @@ export function describeReason(code, metrics) {
     case 'tooFewNoGo':
       return `참아야 할 그림이 ${metrics.noGoTrials}개뿐이라 억제 지표를 해석하는 데 필요한 ${THRESHOLDS.minNoGoTrials}개에 못 미칩니다. 억제 실패 횟수는 참고로만 보세요. 짧은 검사는 억제를 재기보다 과제에 적응하고 참여하는지 확인하는 용도입니다. 억제력을 보려면 더 긴 검사를 하세요.`;
     case 'tooManyInvalid':
-      return `화면이 가려져 무효가 된 문항이 전체 ${total}문항 중 ${metrics.invalidTrials}개(${pct(metrics.invalidRate)})로, 기준(${pct(THRESHOLDS.invalidTrialRate)} 이상)을 넘었습니다. 검사가 자주 끊긴 것입니다. 알림과 다른 앱을 끄고, 학생이 화면을 가리지 않게 한 뒤 다시 해 보세요.`;
+      return `화면이 가려지거나 검사를 중단해서 무효가 된 문항이 전체 ${total}문항 중 ${metrics.invalidTrials}개(${pct(metrics.invalidRate)})로, 기준(${pct(THRESHOLDS.invalidTrialRate)} 이상)을 넘었습니다. 그 순간 진행 중이던 문항이 무효로 빠지는데, 문항 수가 적은 회차에서는 한두 문항만 빠져도 기준을 넘습니다. 중단한 회차라면 앞부분만 기록된 것으로 읽으세요. 중단한 적이 없는데 자주 끊겼다면 알림과 다른 앱을 끄고, 학생이 화면을 가리지 않게 한 뒤 다시 해 보세요.`;
     default:
       return `알 수 없는 이유(${code})로 해석에 주의가 필요합니다. 이 화면보다 새로운 도구 버전에서 만든 회차일 수 있습니다.`;
   }
@@ -485,7 +486,7 @@ function interpretationSection(metrics, badge) {
       'section',
       { class: 'result-section', dataset: { interpretation: '', unmeasured: 'true' } },
       h('h2', { text: '해석 한 줄' }),
-      h('p', { text: '측정된 문항이 없어 해석할 수 없습니다. 문항이 하나도 기록되지 않았거나, 모두 화면이 가려져 무효가 되었습니다.' }),
+      h('p', { text: '측정된 문항이 없어 해석할 수 없습니다. 문항이 하나도 기록되지 않았거나, 기록된 문항이 모두 무효입니다(화면이 가려졌거나 검사를 중단해 지표에서 뺀 문항).' }),
     );
   }
   const sentences = interpret(metrics, badge);
@@ -652,7 +653,7 @@ function conditionsSection(session, metrics) {
       { class: 'cautions' },
       h('li', { text: '스마트폰은 기기마다 터치 지연이 달라, 다른 기기에서 잰 반응시간의 절대값을 직접 비교할 수 없습니다. 이 도구가 보장하는 것은 같은 학생이 같은 기기에서 반복 측정한 회차 간 비교입니다.' }),
       h('li', { text: '난이도 단계가 다른 회차의 수치는 비교하지 마세요. 좋아진 것인지 쉬운 단계로 내려간 것인지 구별되지 않습니다.' }),
-      h('li', { text: `CSV로 내보내 분석할 때는 invalid=0인 행만 세어야 이 화면의 수치와 일치합니다. 화면이 가려져 무효가 된 문항도 CSV에는 남지만, 이 화면의 모든 수치에서는 빠집니다. 이번 회차의 무효 문항은 ${metrics.invalidTrials}개입니다.` }),
+      h('li', { text: `CSV로 내보내 분석할 때는 invalid=0인 행만 세어야 이 화면의 수치와 일치합니다. 화면이 가려지거나 검사를 중단해 무효가 된 문항도 CSV에는 남지만, 이 화면의 모든 수치에서는 빠집니다. 이번 회차의 무효 문항은 ${metrics.invalidTrials}개입니다.` }),
       h('li', { text: `반응 일관성은 정반응 반응시간의 표준편차로 정합니다. ${THRESHOLDS.consistencySdGoodMs}ms 이하면 '일정함', ${THRESHOLDS.consistencySdFairMs}ms 이하면 '보통', 그보다 크면 '들쭉날쭉'입니다.` }),
     ),
   );

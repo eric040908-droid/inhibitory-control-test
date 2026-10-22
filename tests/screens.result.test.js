@@ -396,6 +396,48 @@ describe('측정 조건 표시', () => {
     expect(text('[data-conditions]')).toMatch(/invalid=0/);
   });
 
+  // 엔진은 진행 중이던 문항을 화면이 가려질 때(pause)와 검사를 중단할 때(abort) 무효로 닫는다. 글이 가려짐만 탓하면, 중단한 회차를 본
+  // 교사가 알림을 끄라는 말을 듣는다.
+  describe('무효 문항의 원인을 가려짐만으로 말하지 않는다', () => {
+    const NOTIFICATION_ADVICE = /알림과 다른 앱을 끄고/;
+
+    test('범례: 가려짐과 중단을 함께 말한다', () => {
+      mountResult({ session: sessionFixture({ responses: [go(500), invalid()] }) });
+      const legend = text('[data-trial-legend]');
+      expect(legend).toMatch(/가려졌거나 검사를 중단/);
+    });
+
+    test('tooManyInvalid 안내: 중단도 원인으로 말하고, 중단한 회차라면 앞부분만 본 것으로 읽으라 하며, 알림 조언은 중단하지 않은 경우로 한정한다', () => {
+      const m = computeMetrics([go(500), invalid(), invalid(), go(500)]);
+      const s = describeReason('tooManyInvalid', m);
+      expect(s).toMatch(/중단/);
+      expect(s).toMatch(/화면이 가려지거나/);
+      expect(s).toMatch(/중단한 회차라면/);
+      expect(s).toMatch(/중단한 적이 없는데/);
+      expect(s).toMatch(NOTIFICATION_ADVICE);
+    });
+
+    test('중단한 회차가 짧아서 무효 비율이 기준을 넘은 경우, 배지 이유가 중단을 말한다 (알림 얘기만 하지 않는다)', () => {
+      // 중단 직전 진행 중이던 한 문항이 무효로 남아 4문항 중 1개(25%)가 된 회차
+      const responses = [go(500), go(520), nogo(null), invalid()];
+      mountResult({ session: sessionFixture({ complete: false, responses, trialCount: 30 }) });
+      const reason = qs('[data-reason="tooManyInvalid"]');
+      expect(reason).not.toBeNull();
+      expect(reason.textContent).toMatch(/중단/);
+      expect(qs('[data-notice="aborted"]')).not.toBeNull();
+    });
+
+    test('모든 문항이 무효인 회차의 해석 안내도 중단을 말한다', () => {
+      mountResult({ session: sessionFixture({ complete: false, responses: [invalid(), invalid()], trialCount: 30 }) });
+      expect(text('[data-interpretation]')).toMatch(/검사를 중단/);
+    });
+
+    test('측정 조건 구역의 CSV 안내도 중단으로 빠진 문항을 말한다', () => {
+      mountResult({ session: sessionFixture({ responses: [go(500), invalid(), invalid()] }) });
+      expect(text('[data-conditions]')).toMatch(/가려지거나 검사를 중단해 무효가 된 문항/);
+    });
+  });
+
   test('이번 회차의 무효 문항 수를 적는다', () => {
     mountResult({ session: sessionFixture({ responses: [go(500), invalid(), invalid(), nogo(null)] }) });
     expect(text('[data-conditions]')).toMatch(/무효 문항은 2개/);
