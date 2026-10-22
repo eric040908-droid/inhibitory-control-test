@@ -73,9 +73,9 @@ body {
   max-width: 40rem;
   margin: 0 auto;
   padding: var(--space-3) var(--space-2);
-  /* 한글이 단어 중간에서 줄바꿈되지 않게. 긴 별칭은 넘치지 않게 꺾는다. */
+  /* 한글이 단어(음절) 중간에서 줄바꿈되지 않게. overflow-wrap: anywhere는 칸이 좁아지면 이것을 덮어쓰므로 쓰지 않는다.
+     별칭처럼 길게 이어진 글자만 아래 .quick-start p에서 따로 꺾는다. */
   word-break: keep-all;
-  overflow-wrap: anywhere;
 }
 
 .teacher-screen h1 {
@@ -165,10 +165,6 @@ input, select {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.choice-wide {
-  grid-column: 1 / -1;
-}
-
 .choice {
   display: flex;
   align-items: center;
@@ -179,6 +175,18 @@ input, select {
   border-radius: var(--radius);
   background: var(--color-surface);
   cursor: pointer;
+}
+
+/* 3열(검사 길이)은 칸당 글자 공간이 좁다: 폭 360px에서 칸 하나가 약 104px다. 좌우 패딩과 라디오 간격을 줄여
+   두 글자 라벨이 한 줄에 들어가게 하고, 그래도 모자라면 쪼개지 않고 한 줄로 둔다. 3열에는 세 글자 이하 라벨만 둔다. */
+.choice-grid-3 .choice {
+  gap: calc(var(--space-1) / 2);
+  padding-left: var(--space-1);
+  padding-right: var(--space-1);
+}
+
+.choice-grid-3 .choice-text {
+  white-space: nowrap;
 }
 
 .choice input {
@@ -232,6 +240,11 @@ input, select {
   border: 0.125rem solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-response);
+}
+
+/* 별칭은 길게 이어질 수 있다(공백 없는 글자). 이 요약에서만 넘치면 꺾는다. */
+.quick-start p {
+  overflow-wrap: break-word;
 }
 
 .quick-start .btn {

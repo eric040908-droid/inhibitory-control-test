@@ -803,3 +803,85 @@ describe('선택지', () => {
     }
   });
 });
+
+// ---- 좁은 화면에서 라벨이 쪼개지지 않는 구조 ----------------------------------------------------
+// jsdom은 실제 줄바꿈을 재지 못한다. 375px·360px에서 라벨이 한 줄인지는 브라우저로 실측했고(보고서에 값을 적었다),
+// 여기서는 그 결과를 지키는 구조적 조건을 고정한다.
+describe('좁은 화면(360~375px)에서 라벨이 음절 중간에서 쪼개지지 않는 구조', () => {
+  const read = async (path) => (await import('node:fs')).readFileSync(path, 'utf8');
+  const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  test('난이도는 3열 격자가 아니다 ("1단계"가 3열 칸에서 "1단/계"로 쪼개졌다)', () => {
+    mountSetup();
+    const grid = qs('input[name="level"]').closest('.choice-grid');
+    expect(grid.classList.contains('choice-grid-3')).toBe(false);
+  });
+
+  test('3열 격자에는 세 글자 이하 라벨만 둔다 (검사 길이: 짧게·보통·길게)', () => {
+    mountSetup();
+    const grids = [...document.querySelectorAll('.choice-grid-3')];
+    expect(grids.length).toBeGreaterThan(0);
+    for (const grid of grids) {
+      for (const label of grid.querySelectorAll('label.choice')) {
+        expect(label.textContent.trim().length).toBeLessThanOrEqual(3);
+      }
+    }
+    expect(grids.some((g) => g.querySelector('input[name="length"]'))).toBe(true);
+  });
+
+  test('css: overflow-wrap: anywhere와 break-all을 쓰지 않는다 (한국어 라벨을 음절 중간에서 끊는다)', async () => {
+    const css = stripComments(await read('css/app.css'));
+    expect(css).not.toMatch(/overflow-wrap:\s*anywhere/);
+    expect(css).not.toMatch(/word-break:\s*break-all/);
+    expect(css).not.toMatch(/line-break:\s*anywhere/);
+  });
+
+  test('css: 교사 화면은 word-break: keep-all이다', async () => {
+    const css = stripComments(await read('css/app.css'));
+    const rule = css.match(/\.teacher-screen\s*\{([^}]*)\}/)[1];
+    expect(rule).toMatch(/word-break:\s*keep-all/);
+  });
+
+  test('css: 3열 칸은 좌우 패딩을 한 단계(--space-1)로 줄이고 라벨을 한 줄(nowrap)로 둔다', async () => {
+    const css = stripComments(await read('css/app.css'));
+    const choice = css.match(/\.choice-grid-3\s+\.choice\s*\{([^}]*)\}/)[1];
+    expect(choice).toMatch(/padding-left:\s*var\(--space-1\)/);
+    expect(choice).toMatch(/padding-right:\s*var\(--space-1\)/);
+    expect(choice).toMatch(/gap:\s*calc\(var\(--space-1\)\s*\/\s*2\)/);
+    const text = css.match(/\.choice-grid-3\s+\.choice-text\s*\{([^}]*)\}/)[1];
+    expect(text).toMatch(/white-space:\s*nowrap/);
+  });
+
+  test('css: 3열 규칙은 기본 .choice 규칙보다 뒤에 있다 (패딩 덮어쓰기가 실제로 적용되도록)', async () => {
+    const css = stripComments(await read('css/app.css'));
+    expect(css.indexOf('.choice-grid-3 .choice {')).toBeGreaterThan(css.indexOf('.choice {'));
+  });
+
+  test('css: 3열은 정확히 세 칸이다', async () => {
+    const css = stripComments(await read('css/app.css'));
+    expect(css.match(/\.choice-grid-3\s*\{([^}]*)\}/)[1]).toMatch(/repeat\(3,/);
+  });
+});
+
+// ---- 경고 문장이 스스로 모순되지 않는다 -------------------------------------------------------------
+describe('경고 문장의 개수 표기', () => {
+  const original = TRIAL_COUNTS[1].short;
+  afterEach(() => { TRIAL_COUNTS[1].short = original; });
+
+  test('7.5개처럼 반올림하면 기준(8개)이 되는 값은 "약 7개"로 쓴다 ("약 8개 … 8개에 부족" 금지)', () => {
+    TRIAL_COUNTS[1].short = 37.5; // 7.5
+    mountSetup();
+    selectLength('short'); selectLevelOverride(1);
+    const text = shortageNotice().textContent;
+    expect(text).toContain(`약 ${THRESHOLDS.minNoGoTrials - 1}개`);
+    expect(text).not.toContain(`약 ${THRESHOLDS.minNoGoTrials}개`);
+  });
+
+  test('실제 조합은 그대로 반올림한다 (3.6→4, 5.5→6)', () => {
+    mountSetup();
+    selectLength('short'); selectLevelOverride(1);
+    expect(shortageNotice().textContent).toContain('약 4개');
+    selectLevelOverride(2);
+    expect(shortageNotice().textContent).toContain('약 6개');
+  });
+});

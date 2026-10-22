@@ -31,8 +31,9 @@ const levelLabel = (level) => (level === null ? '연습으로 결정' : `${level
 // ---- No-Go 문항 부족 판정 ------------------------------------------------------------------
 // 억제 지표는 참아야 할 문항이 적으면 해석할 수 없다. 기대 No-Go 수 = 문항 수 × noGoRatio.
 // 실제 순서 생성기는 목표 개수를 정하지 않고 간격으로 뽑으므로 이 값은 "약" 몇 개다(스펙의 표현과 같다).
-// 소수점 잡음(0.2 × 40 이 8.000000000000001 로 나오는 식)이 기준과 정확히 같은 경우를 틀리게 가르지 않도록 다듬는다.
-// 반올림은 하지 않는다: 7.5개를 8개로 올려 경고를 끄지 않는다.
+// 소수 비율의 곱은 이론상 부동소수점 오차가 붙을 수 있어(현재 config 값에서는 정확히 나온다), 기준과 정확히 같은 값이
+// 오차 때문에 한쪽으로 틀리게 갈리지 않도록 1e-6 자리에서 다듬는다. 값이 바뀌어도 안전하게 두기 위한 방어다.
+// 판정에는 정수 반올림을 쓰지 않는다: 7.5개를 8개로 올려 경고를 끄지 않는다.
 export function expectedNoGoCount(level, length) {
   return Math.round(TRIAL_COUNTS[level][length] * LEVELS[level].noGoRatio * 1e6) / 1e6;
 }
@@ -50,7 +51,8 @@ export function noGoShortage(level, length) {
 }
 
 function shortageLead(level, worst) {
-  const n = Math.round(worst.count);
+  // 약 N개는 반올림하되, 기준 미만이라는 문장과 어긋나지 않게 기준 − 1을 넘기지 않는다(7.5개를 "약 8개 … 8개에 부족"으로 쓰지 않는다).
+  const n = Math.min(Math.round(worst.count), THRESHOLDS.minNoGoTrials - 1);
   const need = THRESHOLDS.minNoGoTrials;
   if (level === null) {
     return `난이도를 연습으로 정하면 ${worst.level}단계가 될 수 있고, 그 경우 참아야 하는 그림이 약 ${n}개로 필요한 ${need}개에 부족합니다. 억제 지표는 참고용으로만 표시될 수 있습니다.`;
@@ -294,9 +296,7 @@ export function createSetupScreen(deps) {
       );
       lengthGroup.addEventListener('change', (event) => { state.length = event.target.value; renderWarning(); }, { signal });
 
-      // 긴 글자의 "연습으로 결정"은 한 줄을 다 쓰고, 1~3단계는 그 아래 두 칸씩 놓인다.
-      const practiceChoice = choice('radio', 'level', '', state.level === null, '연습으로 결정 (권장)');
-      practiceChoice.classList.add('choice-wide');
+      // 난이도 칸은 2열이다(연습으로 결정, 1단계 / 2단계, 3단계). "1단계"는 3열에 넣으면 칸이 좁아 음절 중간에서 쪼개진다.
       const levelGroup = fieldset(
         '난이도',
         h('p', {
@@ -304,8 +304,8 @@ export function createSetupScreen(deps) {
           dataset: { hint: 'level' },
           text: `기본은 연습으로 결정입니다. 연습 ${PRACTICE.go + PRACTICE.noGo}문항의 결과로 단계를 추천합니다. 직접 정하려면 단계를 고르세요. ${LEVEL_IDS[0]}단계가 가장 쉽고 ${LEVEL_IDS.at(-1)}단계가 가장 어렵습니다.`,
         }),
-        h('div', { class: 'choice-grid choice-grid-3' },
-          practiceChoice,
+        h('div', { class: 'choice-grid' },
+          choice('radio', 'level', '', state.level === null, '연습으로 결정 (권장)'),
           ...LEVEL_IDS.map((level) => choice('radio', 'level', String(level), state.level === level, levelLabel(level)))),
       );
       levelGroup.addEventListener('change', (event) => {
