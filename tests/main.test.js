@@ -271,3 +271,73 @@ describe('설정 화면 → 이력 화면 → 결과 화면', () => {
     expect(document.querySelector('[data-pin-gate]')).not.toBeNull();
   });
 });
+
+// ---- 서비스 워커 등록 (Task 15) -----------------------------------------------------------------
+// 등록은 오프라인에서 열기 위한 덤이다. file://로 열었거나, HTTPS가 아니거나, 브라우저가 막았으면 실패하는데,
+// 그때도 검사는 되어야 한다. jsdom에는 navigator.serviceWorker가 없으므로 필요한 테스트가 심는다.
+
+describe('서비스 워커 등록', () => {
+  const setServiceWorker = (value) => Object.defineProperty(navigator, 'serviceWorker', { value, configurable: true });
+  afterEach(() => { delete navigator.serviceWorker; });
+
+  test('부팅하면 sw.js를 등록한다 (페이지 기준 상대 주소)', async () => {
+    const register = vi.fn(() => Promise.resolve({}));
+    setServiceWorker({ register });
+    await boot();
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(register).toHaveBeenCalledWith('sw.js');
+  });
+
+  test('첫 화면이 올라간 뒤에 등록한다 (등록이 부팅을 앞지르지 않는다)', async () => {
+    let screenAtRegister = 'not called';
+    const register = vi.fn(() => {
+      screenAtRegister = document.querySelector('[data-screen="setup"]') ? 'setup' : 'none';
+      return Promise.resolve({});
+    });
+    setServiceWorker({ register });
+    await boot();
+    expect(screenAtRegister).toBe('setup');
+  });
+
+  test('서비스 워커를 지원하지 않는 환경(file://, 비-HTTPS)에서도 부팅한다', async () => {
+    expect('serviceWorker' in navigator).toBe(false);
+    const { main } = await boot();
+    expect(main.router.current()).toBe('setup');
+  });
+
+  test('등록이 거절돼도 부팅하고, 처리되지 않은 거절을 남기지 않는다', async () => {
+    const rejections = [];
+    const onRejection = (reason) => rejections.push(reason);
+    process.on('unhandledRejection', onRejection);
+    try {
+      const register = vi.fn(() => Promise.reject(new DOMException('The operation is insecure.', 'SecurityError')));
+      setServiceWorker({ register });
+      const { main } = await boot();
+      expect(register).toHaveBeenCalled();
+      expect(main.router.current()).toBe('setup');
+      await new Promise(resolve => setTimeout(resolve, 20)); // 거절이 처리되지 않았다면 unhandledRejection이 뜰 시간을 준다
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+
+  test('register()가 동기로 던져도 부팅한다', async () => {
+    setServiceWorker({ register: () => { throw new TypeError('Failed to register a ServiceWorker'); } });
+    const { main } = await boot();
+    expect(main.router.current()).toBe('setup');
+    expect(document.querySelector('[data-screen="setup"]')).not.toBeNull();
+  });
+
+  test('register가 약속이 아닌 값을 돌려줘도 부팅한다', async () => {
+    setServiceWorker({ register: () => undefined });
+    const { main } = await boot();
+    expect(main.router.current()).toBe('setup');
+  });
+
+  test('navigator.serviceWorker가 undefined로 정의돼 있어도(일부 비보안 환경) 부팅한다', async () => {
+    setServiceWorker(undefined);
+    const { main } = await boot();
+    expect(main.router.current()).toBe('setup');
+  });
+});

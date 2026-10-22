@@ -76,7 +76,8 @@ body {
 .teacher-screen {
   max-width: 40rem;
   margin: 0 auto;
-  padding: var(--space-3) var(--space-2);
+  /* 위·아래는 노치·홈 인디케이터 안쪽에서 시작한다(설치한 앱에서 viewport-fit=cover를 쓰거나 브라우저가 inset을 알릴 때). 보통은 0이다. */
+  padding: max(var(--space-3), env(safe-area-inset-top, 0px)) var(--space-2) max(var(--space-3), env(safe-area-inset-bottom, 0px));
   /* 한글이 단어(음절) 중간에서 줄바꿈되지 않게. overflow-wrap: anywhere는 칸이 좁아지면 이것을 덮어쓰므로 쓰지 않는다.
      별칭처럼 길게 이어진 글자만 아래 .quick-start p에서 따로 꺾는다. */
   word-break: keep-all;
@@ -286,6 +287,10 @@ input, select {
   grid-template-columns: minmax(0, 1fr);
   height: 100vh;      /* dvh를 모르는 브라우저용 폴백 — 같은 속성에서 뒤 선언이 dvh를 알아야 덮어쓴다 */
   height: 100dvh;
+  /* 세이프 에어리어: 설치(standalone)하면 노치와 홈 인디케이터가 화면을 먹을 수 있다. 하단 절반이 전부 반응 영역이므로
+     위·아래 안전 영역을 비워 두고 50% 행이 "남은 높이의 절반"이 되게 한다. viewport-fit=cover가 없으면 이 값은 0이다.
+     백분율 행은 이 컨테이너의 content box 높이를 기준으로 풀린다. */
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
   position: relative;   /* 중단 버튼을 구석에 둔다 */
   overflow: hidden;
   /* 핀치 확대까지 막는다: 이 화면은 스크롤하지 않으므로 팬 제스처도 필요 없다. */
@@ -372,7 +377,7 @@ input, select {
    작고 흐리게 두고, 1초 넘게 눌러야 동작한다(JS). 누르는 동안 안쪽이 차오른다. */
 .abort-btn {
   position: absolute;
-  top: var(--space-1);
+  top: calc(var(--space-1) + env(safe-area-inset-top, 0px));   /* 노치 아래 */
   left: var(--space-1);
   z-index: 1;
   display: flex;
@@ -493,6 +498,7 @@ input, select {
   gap: var(--space-3);
   height: 100vh;      /* dvh를 모르는 브라우저용 폴백 */
   height: 100dvh;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);  /* 세이프 에어리어 — .test-screen 참고 */
   overflow: hidden;
   touch-action: none;
   overscroll-behavior: none;

@@ -1,5 +1,5 @@
 // 앱 진입점 — 라우터를 만들고, 화면들이 받을 deps를 조립하고, 첫 화면으로 보낸다.
-// 서비스 워커 등록은 여기서 하지 않는다 (Task 15).
+// 맨 아래에서 오프라인용 서비스 워커(sw.js)도 등록한다.
 import { createRouter } from './router.js';
 import { unlock, playCorrect, playStimulus, setEnabled } from './audio.js';
 import { createEngine } from './engine.js';
@@ -80,4 +80,19 @@ const unlockAudio = () => audio.unlock();
 document.addEventListener('pointerdown', unlockAudio, { capture: true });
 document.addEventListener('pointerup', unlockAudio, { capture: true });
 
+// ---- 오프라인 ----------------------------------------------------------------------------
+// 한 번 열어 본 뒤에는 인터넷이 끊겨도 열리게 서비스 워커를 등록한다(sw.js가 배포 파일 전체를 캐시한다).
+// 등록은 덤이다: file://로 열었거나, HTTPS가 아니거나, 브라우저가 서비스 워커를 막았으면 실패하고,
+// 그때도 검사는 되어야 한다. 그래서 동기 예외와 거절된 약속을 모두 삼키고 앱 부팅은 건드리지 않는다.
+// 호출은 goSetup() 뒤에 한다 — 등록이 어떻게 되든 첫 화면은 이미 올라가 있다.
+export function registerServiceWorker(nav = globalThis.navigator) {
+  try {
+    if (!nav || !('serviceWorker' in nav)) return;
+    Promise.resolve(nav.serviceWorker.register('sw.js')).catch(() => {});
+  } catch {
+    // 등록할 수 없는 환경 — 오프라인 열기만 포기하고 앱은 그대로 쓴다.
+  }
+}
+
 goSetup();
+registerServiceWorker();
