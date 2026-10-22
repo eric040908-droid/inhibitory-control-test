@@ -31,6 +31,8 @@
   --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
   --stimulus-size: min(60vmin, 18rem);  /* 자극 그림 한 변. 가로·세로 어느 쪽에서도 영역 안에 들어간다 */
   --strip-height: 4rem;                  /* 자극 영역과 반응 영역 사이 수집 격자 띠 */
+  --grid-rows: 1;                        /* 격자 줄 수·칸 수의 기본값. 칸 개수에 맞춰 JS가 띠 요소에 다시 적는다 */
+  --grid-cols: 10;
 
   /* 움직임 — reduced-motion 규칙이 transition-duration을 0.01ms로 줄이므로, 그때는 이 값이 있어도 전환이 사실상 없다 */
   --motion-fast: 150ms;
@@ -272,6 +274,7 @@ input, select {
   grid-template-columns: minmax(0, 1fr);
   height: 100vh;      /* dvh를 모르는 브라우저용 폴백 — 같은 속성에서 뒤 선언이 dvh를 알아야 덮어쓴다 */
   height: 100dvh;
+  position: relative;   /* 중단 버튼을 구석에 둔다 */
   overflow: hidden;
   /* 핀치 확대까지 막는다: 이 화면은 스크롤하지 않으므로 팬 제스처도 필요 없다. */
   touch-action: none;
@@ -292,16 +295,53 @@ input, select {
   line-height: 1;
 }
 
+/* 수집 격자 띠. 줄 수·칸 수는 칸 개수에 맞춰 JS가 --grid-rows / --grid-cols로 정한다(칸이 최대 70개라 한 줄에 못 담는다).
+   칸 안의 그림은 칸 크기에 맞춰 줄어든다. 띠 밖으로 나가지 않는다(overflow: hidden) — 자극 영역을 가리지 않는다. */
 .test-strip {
   grid-area: strip;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--grid-rows), minmax(0, 1fr));
+  align-items: stretch;
   padding: 0 var(--space-1);
   overflow: hidden;
   background: var(--color-strip);
+  container-type: size;
+}
+
+.grid-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-emoji);
+  font-size: 0.875rem;   /* 컨테이너 단위를 모르는 브라우저용 폴백 */
+  font-size: min(calc(100cqh / var(--grid-rows) * 0.75), calc(100cqw / var(--grid-cols) * 0.75));
+  line-height: 1;
+}
+
+/* 빈 칸은 속이 빈 동그라미, 채운 칸은 그림이다 — 색이 아니라 모양과 내용이 다르다. */
+.grid-cell::before {
+  content: "";
+  width: 45%;
+  aspect-ratio: 1;
+  border: 0.125rem solid var(--color-text-muted);
+  border-radius: 50%;
+}
+
+.grid-cell[data-filled="true"]::before {
+  display: none;
+}
+
+/* 채워지는 연출: 칸 안에서 커지며 자리 잡는다. 300ms 이내이고 칸 밖으로 나가지 않는다. 오반응에는 없다. */
+.grid-cell.is-new {
+  animation: cell-fill 250ms ease-out;
+}
+
+@keyframes cell-fill {
+  from { transform: scale(0.4); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
 }
 
 .test-response {
@@ -314,6 +354,144 @@ input, select {
    transition을 두지 않아 누르는 순간 바로 바뀐다. */
 .test-response:active {
   background: var(--color-response-pressed);
+}
+
+/* 중단 버튼: 왼쪽 위 구석. 세로에서는 자극 영역, 가로에서는 왼쪽 반이라 어느 쪽에서도 반응 영역 밖이다.
+   작고 흐리게 두고, 1초 넘게 눌러야 동작한다(JS). 누르는 동안 안쪽이 차오른다. */
+.abort-btn {
+  position: absolute;
+  top: var(--space-1);
+  left: var(--space-1);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  overflow: hidden;
+  border: 0.125rem solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  opacity: 0.45;
+}
+
+/* display: flex가 hidden 속성(UA의 display: none)을 이기므로, 끝난 뒤 버튼을 숨기려면 여기서 따로 꺼야 한다. */
+.abort-btn[hidden] {
+  display: none;
+}
+
+.abort-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--color-accent);
+  opacity: 0.4;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+/* animation-duration은 JS가 버튼에 적는다(중단에 필요한 누름 시간과 한 곳에서 맞추려고). */
+.abort-btn[data-holding]::after {
+  animation: abort-fill linear forwards;
+  animation-duration: inherit;
+}
+
+@keyframes abort-fill {
+  to { transform: scaleX(1); }
+}
+
+/* 마무리 그림: 세션이 끝난 뒤에만 나온다. 격자가 덜 찼어도 항상 나온다. 자극 영역 자리에 뜬다. */
+.test-completion {
+  grid-area: stimulus;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-emoji);
+  font-size: var(--stimulus-size);
+  line-height: 1;
+  pointer-events: none;
+  animation: completion-bounce 1200ms ease-out;
+}
+
+@keyframes completion-bounce {
+  0% { transform: scale(0.3); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ---- 연습 시범 (학생이 보는 화면, 글 없음) ----------------------------------
+   Go 그림: 반응 영역이 스스로 눌린다(진해지고 손가락 그림이 짚는다).
+   No-Go 그림: 그림이 흔들리고 반응 영역이 흐려진 채 눌리지 않는다. 시범에서만 쓰며 학생의 반응에는 쓰이지 않는다. */
+
+.test-response {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.demo-hand {
+  font-family: var(--font-emoji);
+  font-size: var(--stimulus-size);
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.test-response[data-demo="press"] {
+  background: var(--color-response-pressed);
+}
+
+.test-response[data-demo="press"] .demo-hand {
+  opacity: 1;
+  animation: demo-tap 600ms ease-out;
+}
+
+.test-response[data-demo="dim"] {
+  opacity: 0.35;
+}
+
+.is-demo-sway {
+  animation: demo-sway 600ms ease-in-out 3;
+}
+
+@keyframes demo-tap {
+  from { transform: translateY(-1.5rem) scale(1.1); }
+  to { transform: translateY(0) scale(1); }
+}
+
+@keyframes demo-sway {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-9deg); }
+  75% { transform: rotate(9deg); }
+}
+
+/* ---- 연습 결과 (교사 화면) ------------------------------------------------- */
+
+.countdown {
+  height: 0.5rem;
+  margin: 0 0 var(--space-2);
+  border: 0.125rem solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.countdown::after {
+  content: "";
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transform-origin: left center;
+  animation: countdown-fill linear forwards;
+  animation-duration: inherit;
+}
+
+@keyframes countdown-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
 /* 가로로 돌려도 깨지지 않게: 반응 영역이 오른쪽 절반, 자극과 띠가 왼쪽 절반. */

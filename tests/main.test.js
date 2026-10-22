@@ -114,3 +114,75 @@ test('deps.createEngine은 engine 모듈의 createEngine이다', async () => {
   const { main, engineModule } = await boot();
   expect(main.deps.createEngine).toBe(engineModule.createEngine);
 });
+
+// ---- 설정 → 연습/검사 → 회차 저장 (js/flow.js를 main이 실제로 잇는다) ------------------------------------
+describe('설정 화면에서 이어지는 흐름', () => {
+  const click = el => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const choose = (name, value) => {
+    const radio = document.querySelector(`input[type="radio"][name="${name}"][value="${value}"]`);
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  function startFromSetup({ level, length = 'short' }) {
+    const input = document.querySelector('input[name="alias"]');
+    input.value = '흐름확인';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    choose('length', length);
+    choose('level', level === null ? '' : String(level));
+    click(document.querySelector('[data-action="start"]'));
+  }
+  const storedSessions = () => JSON.parse(localStorage.getItem('inhibitoryControlTest')).sessions;
+
+  beforeEach(() => { localStorage.clear(); });
+  afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
+
+  test('연습으로 정하면 연습 화면(학생 화면)이 뜬다', async () => {
+    const { main } = await boot();
+    startFromSetup({ level: null });
+    expect(main.router.current()).toBe('practice');
+    expect(document.querySelector('[data-student-view]')).not.toBeNull();
+    main.router.go('setup'); // 연습 화면의 타이머를 거둔다
+  });
+
+  test('난이도를 직접 정하면 연습 없이 본 검사 화면이 뜬다', async () => {
+    const { main } = await boot();
+    startFromSetup({ level: 2 });
+    expect(main.router.current()).toBe('test');
+    expect(document.querySelector('[data-abort]')).not.toBeNull();
+    main.router.go('setup');
+  });
+
+  test('연습으로 정한 단계는 지난 설정에 저장되지 않는다', async () => {
+    await boot();
+    startFromSetup({ level: null });
+    expect(JSON.parse(localStorage.getItem('inhibitoryControlTest')).lastSetup.level).toBeNull();
+  });
+
+  test('실제 엔진·실제 시계로 끝까지 돌리면 완료 회차가 저장되고 설정 화면으로 돌아온다', async () => {
+    const { main } = await boot();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    startFromSetup({ level: 1 });
+    expect(main.router.current()).toBe('test');
+    vi.advanceTimersByTime(10 * 60 * 1000); // 아무것도 누르지 않고 끝까지 (전부 누락)
+    expect(main.router.current()).toBe('setup');
+    const sessions = storedSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ studentAlias: '흐름확인', level: 1, length: 'short', complete: true, practice: null });
+    expect(sessions[0].responses).toHaveLength(sessions[0].trialCount);
+    expect(sessions[0].responses.every(r => r.invalid === false)).toBe(true);
+  });
+
+  test('중단 버튼을 길게 누르면 미완료 회차가 저장된다', async () => {
+    const { main } = await boot();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    startFromSetup({ level: 1 });
+    vi.advanceTimersByTime(2000);
+    const btn = document.querySelector('[data-abort]');
+    btn.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    vi.advanceTimersByTime(1000);
+    expect(main.router.current()).toBe('setup');
+    const sessions = storedSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].complete).toBe(false);
+  });
+});
