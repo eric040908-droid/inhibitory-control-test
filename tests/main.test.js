@@ -341,3 +341,122 @@ describe('서비스 워커 등록', () => {
     expect(main.router.current()).toBe('setup');
   });
 });
+
+// ---- PIN이 켜져 있으면 검사 직후 결과로 자동 전환하지 않는다 (스펙 §5.9) ---------------------------------------
+// 검사가 끝난 순간 기기는 학생 손에 있고 교사는 자리에 없다. 결과 화면(해석 불가 배지, 억제 실패 횟수, 같은 학생의 이력)은
+// 잠금을 풀기 전에는 DOM에 올라오면 안 된다.
+describe('PIN이 켜져 있을 때 검사 직후의 결과', () => {
+  const PIN_KEY = 'inhibitoryControlTest.pin';
+  const click = el => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const choose = (name, value) => {
+    const radio = document.querySelector(`input[type="radio"][name="${name}"][value="${value}"]`);
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  function startLevel1() {
+    const input = document.querySelector('input[name="alias"]');
+    input.value = '잠금확인';
+    choose('length', 'short');
+    choose('level', '1');
+    click(document.querySelector('[data-action="start"]'));
+  }
+  const submitPin = (value) => {
+    document.querySelector('[data-pin-input]').value = value;
+    document.querySelector('[data-pin-form]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  };
+  const fakeTimers = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+
+  beforeEach(() => { localStorage.clear(); localStorage.setItem(PIN_KEY, '1234'); });
+  afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
+
+  test('완료한 검사: 결과 화면 대신 잠금 화면이 뜨고, 결과의 어떤 내용도 DOM에 없다', async () => {
+    const { main } = await boot();
+    fakeTimers();
+    startLevel1();
+    vi.advanceTimersByTime(10 * 60 * 1000); // 아무것도 누르지 않고 끝까지 (전부 누락 → 해석 불가)
+    expect(main.router.current()).toBe('resultLock');
+    expect(document.querySelector('[data-pin-gate]')).not.toBeNull();
+    expect(document.querySelector('[data-screen="result"]')).toBeNull();
+    expect(document.querySelector('[data-badge]')).toBeNull();
+    expect(document.querySelector('[data-tile]')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/해석 불가|억제 실패|잠금확인/);
+    // 회차는 잠금과 무관하게 이미 저장됐다.
+    expect(storedSessions()).toHaveLength(1);
+  });
+
+  test('틀린 PIN이면 계속 잠겨 있고, 맞는 PIN이면 결과 화면이 뜬다', async () => {
+    const { main } = await boot();
+    fakeTimers();
+    startLevel1();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    submitPin('0000');
+    expect(main.router.current()).toBe('resultLock');
+    expect(document.querySelector('[data-pin-error]')).not.toBeNull();
+    expect(document.querySelector('[data-screen="result"]')).toBeNull();
+    submitPin('1234');
+    expect(main.router.current()).toBe('result');
+    expect(document.querySelector('[data-screen="result"]')).not.toBeNull();
+    expect(document.querySelector('[data-pin-gate]')).toBeNull();
+    // 결과의 돌아가기는 설정 화면으로 보낸다.
+    click(document.querySelector('[data-action="back"]'));
+    expect(main.router.current()).toBe('setup');
+  });
+
+  test('잠금 화면의 돌아가기는 결과를 보지 않고 설정 화면으로 간다', async () => {
+    const { main } = await boot();
+    fakeTimers();
+    startLevel1();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    click(document.querySelector('[data-action="back"]'));
+    expect(main.router.current()).toBe('setup');
+    expect(document.querySelector('[data-screen="result"]')).toBeNull();
+  });
+
+  test('중단한 검사도 잠금 화면을 거친다', async () => {
+    const { main } = await boot();
+    fakeTimers();
+    startLevel1();
+    vi.advanceTimersByTime(2000);
+    document.querySelector('[data-abort]').dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    vi.advanceTimersByTime(1000);
+    expect(main.router.current()).toBe('resultLock');
+    expect(document.querySelector('[data-notice="aborted"]')).toBeNull();
+    expect(storedSessions()[0].complete).toBe(false);
+  });
+
+  test('PIN이 꺼져 있으면 지금까지처럼 곧바로 결과 화면이 뜬다', async () => {
+    localStorage.removeItem(PIN_KEY);
+    const { main } = await boot();
+    fakeTimers();
+    startLevel1();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(main.router.current()).toBe('result');
+    expect(document.querySelector('[data-pin-gate]')).toBeNull();
+  });
+
+  test('PIN은 검사가 끝나는 순간에 확인한다 (부팅 때 꺼져 있었어도 그 사이 켜졌으면 잠긴다)', async () => {
+    localStorage.removeItem(PIN_KEY);
+    const { main } = await boot();
+    fakeTimers();
+    startLevel1();
+    localStorage.setItem(PIN_KEY, '1234');
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(main.router.current()).toBe('resultLock');
+  });
+
+  test('PIN을 켠 채로도 설정 화면에 다른 학생이 보이지 않고, 지난 설정으로 바로 시작은 된다', async () => {
+    localStorage.setItem('inhibitoryControlTest', JSON.stringify({
+      schemaVersion: 1,
+      lastSetup: { alias: '남의이름', themeId: 'animal', level: 1, length: 'short' },
+      sessions: [{ id: 'z', studentAlias: '남의이름', startedAt: 1_700_000_000_000, endedAt: 1_700_000_300_000, complete: true, level: 1, themeId: 'animal', length: 'short', trialCount: 1, practice: null, device: null, toolVersion: '0.1.0', responses: [] }],
+    }));
+    const { main } = await boot();
+    expect(document.querySelector('select')).toBeNull();
+    expect(document.body.innerHTML).not.toContain('남의이름');
+    click(document.querySelector('[data-action="quick-start"]'));
+    expect(main.router.current()).toBe('test');
+    main.router.go('setup');
+  });
+
+  const storedSessions = () => JSON.parse(localStorage.getItem('inhibitoryControlTest')).sessions;
+});

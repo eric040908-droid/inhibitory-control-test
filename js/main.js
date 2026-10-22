@@ -8,6 +8,8 @@ import { createPracticeScreen } from './screens/practiceScreen.js';
 import { createTaskScreen } from './screens/task.js';
 import { createResultScreen } from './screens/result.js';
 import { createHistoryScreen } from './screens/history.js';
+import { createPinGateScreen } from './screens/pinGate.js';
+import * as pin from './pin.js';
 import { createFlow } from './flow.js';
 
 // ---- deps 조립 지점 -----------------------------------------------------------------------
@@ -39,6 +41,7 @@ export const router = createRouter(rootEl, {
   test: createTaskScreen(deps),
   result: createResultScreen(deps),
   history: createHistoryScreen(deps),
+  resultLock: createPinGateScreen(),
 });
 
 // 화면 이동은 flow가 맡는다(설정 → 연습 → 본 검사 → 회차 저장). 화면들은 서로를 모른다.
@@ -58,8 +61,14 @@ function goHistory(alias) {
 
 // 검사가 끝나면(완료는 마무리 애니메이션 뒤, 중단은 곧바로) 결과 화면으로 간다. 저장이 실패했어도 간다 —
 // saveResult({ ok, error })를 넘겨 결과 화면이 "이 회차는 저장되지 않았습니다"를 교사에게 알린다.
+//
+// PIN이 켜져 있으면 결과로 자동 전환하지 않고 잠금 화면을 거친다(스펙 §5.9). 검사가 끝난 순간 기기는 아직 학생 손에 있고
+// 교사는 자리에 없다 — 결과 화면(해석 불가 배지, 억제 실패 횟수, 같은 학생의 이력)을 학생이 보면 안 된다.
+// PIN이 켜져 있는지는 이 순간에 묻는다(부팅 때가 아니다). 잠금이 풀리기 전에는 결과가 DOM에 올라오지 않는다.
 function goResult(session, saveResult) {
-  router.go('result', { session, saveResult, onBack: goSetup });
+  const show = () => router.go('result', { session, saveResult, onBack: goSetup });
+  if (pin.isEnabled()) router.go('resultLock', { onUnlock: show, onBack: goSetup });
+  else show();
 }
 
 const flow = createFlow({

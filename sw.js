@@ -32,6 +32,7 @@ const PRECACHE = [
   'js/practice.js',
   'js/router.js',
   'js/screens/history.js',
+  'js/screens/pinGate.js',
   'js/screens/practiceScreen.js',
   'js/screens/result.js',
   'js/screens/setup.js',

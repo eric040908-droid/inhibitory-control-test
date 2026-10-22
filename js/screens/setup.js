@@ -15,6 +15,7 @@ import { LEVELS, PRACTICE, THRESHOLDS, TRIAL_COUNTS } from '../config.js';
 import { THEMES } from '../themes.js';
 import { isAvailable, lastSetup, listStudents, saveLastSetup } from '../storage.js';
 import { measureRefreshHz } from '../deviceInfo.js';
+import * as pin from '../pin.js';
 
 // ---- 선택지 ------------------------------------------------------------------------------
 // 값은 TRIAL_COUNTS의 키와 같아야 한다(tests가 고정한다). 글자만 여기서 붙인다.
@@ -171,6 +172,10 @@ export function createSetupScreen(deps) {
       // ---- 시작 상태 ----
       const saved = readSaved();
       const prefs = readPrefs();
+      // PIN 잠금 중에는 이 화면이 다른 학생의 이름을 보여 주지 않는다(스펙 §5.9 공용 PC 대응). 이 화면은 앱의 첫 화면이고 잠기지 않으며,
+      // 검사받으러 온 학생이 맨 처음 보는 화면이다. 가리는 것은 CSS가 아니라 DOM에 올리지 않는 것이다 — 학생은 확대하고,
+      // 글자를 선택하고, 화면 낭독기를 켤 수 있다. 가리는 곳: 학생 목록(<select>), 바로 시작의 학생 이름, 별칭 입력란의 미리 채운 값.
+      const locked = pin.isEnabled();
       const state = {
         themeId: saved?.themeId ?? THEMES[0].id,
         length: saved?.length ?? DEFAULT_LENGTH,
@@ -225,7 +230,12 @@ export function createSetupScreen(deps) {
         children.push(h(
           'section',
           { class: 'quick-start' },
-          h('p', { dataset: { quickSummary: '' }, text: `지난 검사와 같은 설정: ${saved.alias} · ${theme.label} · ${lengthLabel} · 난이도 ${levelLabel(saved.level)}` }),
+          h('p', {
+            dataset: { quickSummary: '' },
+            text: locked
+              ? `지난 검사와 같은 설정(PIN 잠금 중이라 학생 이름은 가립니다): ${theme.label} · ${lengthLabel} · 난이도 ${levelLabel(saved.level)}`
+              : `지난 검사와 같은 설정: ${saved.alias} · ${theme.label} · ${lengthLabel} · 난이도 ${levelLabel(saved.level)}`,
+          }),
           worst && h('p', { dataset: { notice: 'quick-start-shortage' }, text: `⚠ ${shortageLead(saved.level, worst)}` }),
           quick,
           h('p', { class: 'text-muted', text: '다른 설정으로 검사하려면 아래에서 고르세요.' }),
@@ -234,7 +244,7 @@ export function createSetupScreen(deps) {
 
       // 별칭
       const aliasInput = h('input', {
-        type: 'text', name: 'alias', id: 'alias', value: saved?.alias ?? '',
+        type: 'text', name: 'alias', id: 'alias', value: locked ? '' : saved?.alias ?? '',
         autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-describedby': 'alias-guide',
       });
       const aliasError = h('div', { 'aria-live': 'polite' });
@@ -245,7 +255,10 @@ export function createSetupScreen(deps) {
         aliasInput,
         aliasError,
       ];
-      const students = listStudents();
+      const students = locked ? [] : listStudents();
+      if (locked) {
+        aliasChildren.push(h('p', { class: 'text-muted', dataset: { lockedStudents: '' }, text: 'PIN 잠금 중에는 이전에 검사한 학생 목록을 보여 주지 않습니다. 별칭을 직접 입력하세요.' }));
+      }
       if (students.length > 0) {
         const known = h(
           'select',

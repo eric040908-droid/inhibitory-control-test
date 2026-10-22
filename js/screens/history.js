@@ -21,6 +21,7 @@ import {
   listStudents, listSessions, readRaw, replaceAll, storageStatus, validationError,
 } from '../storage.js';
 import * as pin from '../pin.js';
+import { gateView, verifySubmit } from './pinGate.js';
 
 // 초기화 확인 단어. 이 단어를 입력해야 지워진다 — 실수로 눌러서는 지울 수 없게 하려는 것이다.
 const RESET_WORD = '지우기';
@@ -350,35 +351,6 @@ export function createHistoryScreen() {
 
     const backButton = () => button('돌아가기', { action: 'back' });
 
-    function gateView() {
-      const input = h('input', {
-        type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: '4', name: 'pin', id: 'pin-gate-input', class: 'pin-input',
-        'aria-label': 'PIN 숫자 4자리', dataset: { pinInput: '' },
-      });
-      return h(
-        'div',
-        { dataset: { pinGate: '' } },
-        h('h1', { text: '이력' }),
-        h('p', { text: '이력을 보려면 PIN 숫자 4자리를 입력하세요.' }),
-        h(
-          'form',
-          { dataset: { pinForm: '' }, novalidate: true },
-          input,
-          pinError ? h('p', { class: 'field-error', role: 'alert', dataset: { pinError: '' } }, h('span', { 'aria-hidden': 'true', text: '⚠ ' }), 'PIN이 맞지 않습니다. 다시 입력해 주세요.') : null,
-          button('열기', { action: 'unlock', secondary: false, type: 'submit' }),
-        ),
-        h(
-          'div',
-          { class: 'text-muted', dataset: { pinForgot: '' } },
-          h('p', { class: 'notice-title', text: 'PIN을 잊었다면' }),
-          h('p', { text: '이 앱에서는 기록을 열 수 없습니다. 남은 방법은 브라우저 설정에서 이 사이트의 데이터를 지우는 것입니다.' }),
-          h('p', { text: '미리 받아 둔 백업(JSON) 파일이 있다면 데이터를 지운 뒤 이력 화면의 "백업 파일 가져오기"로 복원할 수 있습니다.' }),
-          h('p', { text: '백업이 없다면 사이트 데이터를 지우지 마세요. 지우는 순간 저장된 기록이 모두 사라집니다.' }),
-        ),
-        backButton(),
-      );
-    }
-
     function studentsSection(sessions) {
       if (sessions.length === 0) {
         return h('p', { dataset: { empty: '' }, text: '저장된 기록이 없습니다. 검사를 마치면 여기에 쌓입니다.' });
@@ -557,7 +529,7 @@ export function createHistoryScreen() {
         openAliases = new Set([...container.querySelectorAll('details[data-student][open]')].map((d) => d.dataset.student));
       }
       const locked = pin.isEnabled() && !unlocked;
-      container.replaceChildren(...(locked ? [gateView()] : mainView()).filter(Boolean));
+      container.replaceChildren(...(locked ? [gateView({ heading: '이력', prompt: '이력을 보려면 PIN 숫자 4자리를 입력하세요.', pinError })] : mainView()).filter(Boolean));
     }
 
     // ---- 입력 ----
@@ -606,9 +578,9 @@ export function createHistoryScreen() {
     container.addEventListener('submit', (event) => {
       event.preventDefault();
       const form = event.target;
-      if (form?.matches?.('[data-pin-form]')) {
-        const value = form.querySelector('[data-pin-input]')?.value ?? '';
-        if (pin.verify(value)) {
+      const pinOk = verifySubmit(form);
+      if (pinOk !== null) {
+        if (pinOk) {
           unlocked = true;
           pinError = false;
           render();

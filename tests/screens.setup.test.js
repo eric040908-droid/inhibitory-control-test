@@ -885,3 +885,84 @@ describe('경고 문장의 개수 표기', () => {
     expect(shortageNotice().textContent).toContain('약 6개');
   });
 });
+
+// ---- PIN 잠금 중 설정 화면 (스펙 §5.9 공용 PC 대응) -------------------------------------------------------
+// 설정 화면은 앱의 첫 화면이라 잠기지 않는다. 검사받으러 온 학생이 맨 처음 보는 곳에서 다른 학생의 이름이 보이면
+// 이력 화면의 PIN 잠금은 의미가 없다. 가리는 것은 CSS가 아니라 DOM에 올리지 않는 것이다
+// (학생은 확대하고, 글자를 고르고, 화면 낭독기를 켤 수 있다).
+describe('PIN 잠금 중에는 다른 학생의 별칭을 DOM에 올리지 않는다', () => {
+  const PIN_KEY = 'inhibitoryControlTest.pin';
+  const base = { level: 2, complete: true, startedAt: 1 };
+  const NAMES = ['하늘', '가람', '지난학생'];
+
+  function seed() {
+    saveSession({ ...base, id: 'a', studentAlias: '하늘' });
+    saveSession({ ...base, id: 'b', studentAlias: '가람' });
+    saveSession({ ...base, id: 'c', studentAlias: '지난학생' });
+    saveLastSetup({ alias: '지난학생', themeId: 'animal', level: 2, length: 'medium' });
+  }
+  const everythingTheStudentCouldSee = () => document.body.innerHTML + '\n' + document.body.textContent + '\n' + [...document.querySelectorAll('input')].map((i) => i.value).join('\n');
+
+  afterEach(() => { localStorage.removeItem(PIN_KEY); });
+
+  test('PIN이 켜져 있으면 학생 고르기 목록(select)이 DOM에 없고, 어떤 별칭도 화면에 나오지 않는다', () => {
+    seed();
+    localStorage.setItem(PIN_KEY, '1234');
+    mountSetup();
+    expect(qs('select')).toBeNull();
+    expect(qs('select[name="knownStudents"]')).toBeNull();
+    expect(qs('option')).toBeNull();
+    const seen = everythingTheStudentCouldSee();
+    for (const name of NAMES) expect(seen, name).not.toContain(name);
+  });
+
+  test('PIN이 켜져 있으면 바로 시작의 요약에 지난 학생의 이름이 없고, 별칭 입력란은 비어 있다', () => {
+    seed();
+    localStorage.setItem(PIN_KEY, '1234');
+    mountSetup();
+    const summary = qs('[data-quick-summary]').textContent;
+    expect(summary).not.toContain('지난학생');
+    expect(summary).toContain(THEMES.find((t) => t.id === 'animal').label);
+    expect(summary).toContain('보통');
+    expect(summary).toContain('2단계');
+    expect(qs('input[name="alias"]').value).toBe('');
+    expect(qs('input[name="alias"]').getAttribute('value')).toBeNull();
+  });
+
+  test('PIN이 켜져 있어도 바로 시작은 지난 설정 그대로 동작한다 (교사 개입 최소화)', () => {
+    seed();
+    localStorage.setItem(PIN_KEY, '1234');
+    const { onStart } = mountSetup();
+    clickQuickStart();
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onStart).toHaveBeenCalledWith({ alias: '지난학생', themeId: 'animal', length: 'medium', levelOverride: 2 });
+  });
+
+  test('PIN이 켜져 있어도 별칭을 직접 입력해 시작할 수 있고, 목록이 없는 이유를 교사에게 알린다', () => {
+    seed();
+    localStorage.setItem(PIN_KEY, '1234');
+    const { onStart } = mountSetup();
+    typeAlias('새학생');
+    tap(startButton());
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ alias: '새학생' }));
+    expect(qs('[data-locked-students]').textContent).toMatch(/PIN/);
+  });
+
+  test('PIN이 꺼져 있으면 지금까지와 같다: 목록, 요약의 이름, 미리 채운 별칭, 안내 없음', () => {
+    seed();
+    mountSetup();
+    expect([...qs('select[name="knownStudents"]').options].map((o) => o.value).filter(Boolean)).toEqual(['가람', '지난학생', '하늘']);
+    expect(qs('[data-quick-summary]').textContent).toContain('지난학생');
+    expect(qs('input[name="alias"]').value).toBe('지난학생');
+    expect(qs('[data-locked-students]')).toBeNull();
+  });
+
+  test('PIN을 켠 직후 다시 열면(재마운트) 바로 가려진다 — 부팅 때 한 번이 아니라 화면을 올릴 때마다 묻는다', () => {
+    seed();
+    mountSetup();
+    expect(qs('select')).not.toBeNull();
+    localStorage.setItem(PIN_KEY, '1234');
+    remountSetup();
+    expect(qs('select')).toBeNull();
+  });
+});
