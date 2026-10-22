@@ -20,7 +20,8 @@
 - **난이도 단계가 다른 회차의 수치를 나란히 보여주지 않는다.** 추이 그래프는 같은 단계·완료 세션만.
 - **배포 산출물에 빌드 단계가 없다.** 브라우저가 `index.html`과 `js/*.js`를 그대로 읽는다. `package.json`과 `node_modules`는 테스트 전용이며 배포 대상에서 제외한다.
 - **프레임워크·런타임 의존성 없음.** 배포되는 코드는 외부 스크립트를 로드하지 않는다.
-- **입력은 `pointerdown`.** `click`을 쓰지 않는다.
+- **학생의 반응 입력은 `pointerdown`.** 반응시간을 재는 경로에서는 `click`을 쓰지 않는다 — `click`은 터치에서 지연이 붙는다.
+- **교사 화면의 버튼은 `click`을 쓴다.** 교사 화면은 스크롤되므로, `pointerdown`으로 두면 스크롤하려고 손가락을 댄 것이 버튼을 눌러버린다("시작"을 잘못 눌러 검사가 시작되는 것이 실제 위험이다). `click`은 브라우저가 탭과 스크롤 제스처를 구분해 준다. 측정 경로가 아니므로 지연은 문제가 되지 않는다.
 - **반응시간 = 입력 이벤트의 `timeStamp` − 자극이 실제로 그려진 시각.** 핸들러 실행 시각을 쓰지 않는다.
 - **판정 기준값은 전부 `js/config.js` 한 곳에 있다.** 다른 모듈에 숫자를 하드코딩하지 않는다.
 - **문항 수 상한 100.**
@@ -1000,7 +1001,7 @@ git commit -m "feat: add app shell, screen router, and synthesized audio"
 
 **Interfaces:**
 - Consumes: `THEMES`, `TRIAL_COUNTS`, `LEVELS`, `THRESHOLDS`, `storage.lastSetup/saveLastSetup/listStudents`
-- Produces: `setupScreen: { mount(rootEl, { onStart, onHistory, deps }), unmount() }`. `onStart({ alias, themeId, length, levelOverride: 1|2|3|null })`. `deps = { audio }`는 생략하면 실제 `js/audio.js`를 쓰고, 테스트는 대역을 주입한다 — 화면 모듈은 모듈을 직접 import해 쓰지 않고 `deps`를 통해 받는다.
+- Produces: `createSetupScreen(deps): { mount(rootEl, { onStart, onHistory }), unmount() }`. `onStart({ alias, themeId, length, levelOverride: 1|2|3|null })`. `deps = { audio, createEngine }`는 `js/main.js`가 조립해 넘긴다 — 화면 모듈은 그 모듈들을 직접 import하지 않고 `deps`로 받으므로, 테스트가 호출을 관찰할 수 있다. 이 **팩토리 형태(`createXxxScreen(deps)`)가 네 화면 모두의 규약**이다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
