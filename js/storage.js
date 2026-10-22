@@ -141,6 +141,15 @@ export function readRaw() {
   }
 }
 
+// 저장된 자료를 읽을 수 있는 상태인지 알린다. { status: 'empty' | 'ok' } 또는 { status: 'unreadable', error }.
+// 읽을 수 없는 자료는 다른 읽기 함수들에서 빈 결과로 보이므로 "기록이 없다"와 구별할 방법이 필요하다.
+// 이력 화면이 이것으로 "읽을 수 없음" 안내와 원본 내려받기를 내놓고, 읽을 수 없는 동안 가져오기(병합 뒤 덮어쓰기)를 막는다.
+// readState를 그대로 쓰므로 update()·replaceAll()이 보는 상태와 항상 같다.
+export function storageStatus() {
+  const state = readState();
+  return state.status === 'unreadable' ? { status: 'unreadable', error: state.error } : { status: state.status };
+}
+
 // 같은 id가 이미 있으면 교체한다(검사 도중 저장 후 완료 저장처럼 같은 회차를 두 번 저장할 수 있다).
 // toolVersion은 항상 지금의 TOOL_VERSION으로 찍는다 — 호출한 쪽이 빠뜨려도 모든 회차에 남도록.
 export function saveSession(session) {

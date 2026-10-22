@@ -540,3 +540,29 @@ test('readRaw: 접근이 던지는 저장소나 저장소가 없는 환경에서
   setStorage(null);
   expect(readRaw()).toBeNull();
 });
+
+// ---- storageStatus: 이력 화면이 "읽을 수 없는 저장소"를 알아보는 데 쓴다 ---------------------------
+describe('storageStatus', () => {
+  test('아무것도 저장된 적 없으면 empty', async () => {
+    const { storageStatus } = await import('../js/storage.js');
+    expect(storageStatus()).toEqual({ status: 'empty' });
+  });
+
+  test('읽을 수 있으면 ok, 깨졌거나 모양이 틀리면 unreadable과 이유', async () => {
+    const { storageStatus } = await import('../js/storage.js');
+    memory.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: SCHEMA_VERSION, sessions: [], lastSetup: null }));
+    expect(storageStatus()).toEqual({ status: 'ok' });
+    for (const bad of ['{ broken', '', '[]', JSON.stringify({ schemaVersion: 99, sessions: [] }), JSON.stringify({ schemaVersion: 1, sessions: [{ id: '' }] })]) {
+      memory.setItem(STORAGE_KEY, bad);
+      const status = storageStatus();
+      expect(status.status).toBe('unreadable');
+      expect(typeof status.error).toBe('string');
+    }
+  });
+
+  test('저장소 접근이 던져도 던지지 않고 unreadable', async () => {
+    const { storageStatus } = await import('../js/storage.js');
+    stubStorageThatThrows();
+    expect(storageStatus().status).toBe('unreadable');
+  });
+});

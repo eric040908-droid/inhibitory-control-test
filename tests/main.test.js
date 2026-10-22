@@ -217,3 +217,57 @@ describe('설정 화면에서 이어지는 흐름', () => {
     }
   });
 });
+
+describe('설정 화면 → 이력 화면 → 결과 화면', () => {
+  const click = el => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const seed = () => localStorage.setItem('inhibitoryControlTest', JSON.stringify({
+    schemaVersion: 1,
+    lastSetup: null,
+    sessions: [{
+      id: 'a', studentAlias: '가람', startedAt: 1_700_000_000_000, endedAt: 1_700_000_300_000, complete: true, level: 1,
+      themeId: 'animal', length: 'short', trialCount: 2, practice: null, device: null, toolVersion: '0.1.0',
+      responses: [{ index: 0, type: 'go', rtMs: 500, extraTaps: 0, invalid: false }, { index: 1, type: 'go', rtMs: 520, extraTaps: 0, invalid: false }],
+    }],
+  }));
+
+  beforeEach(() => { localStorage.clear(); seed(); });
+  afterEach(() => { localStorage.clear(); });
+
+  test('결과 보기(click)를 누르면 이력 화면이 뜨고, 돌아가기는 설정 화면으로 보낸다', async () => {
+    const { main } = await boot();
+    click(document.querySelector('[data-action="history"]'));
+    expect(main.router.current()).toBe('history');
+    expect(document.querySelector('[data-screen="history"]')).not.toBeNull();
+    click(document.querySelector('[data-action="back"]'));
+    expect(main.router.current()).toBe('setup');
+  });
+
+  test('회차를 열면 결과 화면이 뜨고, 돌아가면 그 학생의 묶음이 펼쳐진 이력 화면으로 온다', async () => {
+    const { main } = await boot();
+    click(document.querySelector('[data-action="history"]'));
+    click(document.querySelector('[data-session-row="a"]'));
+    expect(main.router.current()).toBe('result');
+    expect(document.querySelector('[data-screen="result"]')).not.toBeNull();
+    click(document.querySelector('[data-action="back"]'));
+    expect(main.router.current()).toBe('history');
+    expect(document.querySelector('[data-student="가람"]').open).toBe(true);
+  });
+
+  test('PIN을 켜 두면 결과를 보고 돌아와도 다시 묻지 않지만, 이력 화면을 나갔다 오면 다시 묻는다', async () => {
+    localStorage.setItem('inhibitoryControlTest.pin', '1234');
+    const { main } = await boot();
+    click(document.querySelector('[data-action="history"]'));
+    expect(document.querySelector('[data-pin-gate]')).not.toBeNull();
+    const input = document.querySelector('[data-pin-input]');
+    input.value = '1234';
+    click(document.querySelector('[data-action="unlock"]'));
+    click(document.querySelector('[data-session-row="a"]'));
+    click(document.querySelector('[data-action="back"]'));
+    expect(main.router.current()).toBe('history');
+    expect(document.querySelector('[data-pin-gate]')).toBeNull();
+    click(document.querySelector('[data-action="back"]')); // 이력을 나가 설정으로
+    expect(main.router.current()).toBe('setup');
+    click(document.querySelector('[data-action="history"]'));
+    expect(document.querySelector('[data-pin-gate]')).not.toBeNull();
+  });
+});

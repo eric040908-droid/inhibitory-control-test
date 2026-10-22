@@ -7,6 +7,7 @@ import { createSetupScreen } from './screens/setup.js';
 import { createPracticeScreen } from './screens/practiceScreen.js';
 import { createTaskScreen } from './screens/task.js';
 import { createResultScreen } from './screens/result.js';
+import { createHistoryScreen } from './screens/history.js';
 import { createFlow } from './flow.js';
 
 // ---- deps 조립 지점 -----------------------------------------------------------------------
@@ -37,11 +38,22 @@ export const router = createRouter(rootEl, {
   practice: createPracticeScreen(deps),
   test: createTaskScreen(deps),
   result: createResultScreen(deps),
+  history: createHistoryScreen(deps),
 });
 
 // 화면 이동은 flow가 맡는다(설정 → 연습 → 본 검사 → 회차 저장). 화면들은 서로를 모른다.
 function goSetup() {
-  router.go('setup', { onStart: flow.start }); // Task 14가 onHistory를 더한다
+  router.go('setup', { onStart: flow.start, onHistory: () => goHistory() });
+}
+
+// 이력 화면 → 회차 열기(결과 화면) → 같은 학생의 묶음이 펼쳐진 이력 화면으로 돌아온다.
+// PIN을 맞춘 상태는 history 화면 인스턴스가 기억하므로 결과를 보고 돌아와도 다시 묻지 않는다.
+function goHistory(alias) {
+  router.go('history', {
+    alias,
+    onBack: goSetup,
+    onOpenSession: (session) => router.go('result', { session, onBack: () => goHistory(session.studentAlias) }),
+  });
 }
 
 // 검사가 끝나면(완료는 마무리 애니메이션 뒤, 중단은 곧바로) 결과 화면으로 간다. 저장이 실패했어도 간다 —
