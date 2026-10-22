@@ -345,7 +345,36 @@ function formatShortDate(ms_) {
   return d ? `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` : UNKNOWN;
 }
 
-function trendPoint(session, isCurrent) {
+// ---- 기기 동일성 ---------------------------------------------------------------------------
+// 같은 기기로 볼 기준: 기기 종류 + 화면 크기(짧은 변×긴 변) + 브라우저 이름. 반응시간의 터치 지연을 가르는 것은 기기와 브라우저이고,
+// 그 셋이 같으면 같은 조건에서 잰 것으로 본다.
+//   - 브라우저는 이름만 본다: Chrome 151 → 152 같은 자동 업데이트로 "다른 기기"라고 경고하면 경고를 믿지 않게 된다.
+//   - 화면 크기는 짧은 변×긴 변으로 맞춘다: 폰을 돌리면 screen.width/height가 바뀌는 브라우저가 있다.
+//   - 주사율·화면 배율은 쓰지 않는다: 주사율은 측정 실패(null)가 흔해 같은 기기를 다른 기기로 갈라놓는다.
+// 기기 정보가 하나도 없는 회차(가져온 옛 자료)끼리는 같은 묶음(?|?|?)이다. 알려진 기기와 섞이면 같은 기기임을 확인할 수 없으므로 경고한다.
+function deviceInfo(session) {
+  const d = session && session.device && typeof session.device === 'object' ? session.device : {};
+  const kind = typeof d.kind === 'string' && d.kind !== '' ? d.kind : null;
+  const w = Number.isFinite(d.screenW) && d.screenW > 0 ? d.screenW : null;
+  const hgt = Number.isFinite(d.screenH) && d.screenH > 0 ? d.screenH : null;
+  const browserRaw = typeof d.browser === 'string' ? d.browser.trim() : '';
+  const browser = browserRaw === '' || browserRaw === 'unknown' ? null : browserRaw.replace(/\s*\d[\d.]*$/, '');
+  const size = w !== null && hgt !== null ? { short: Math.min(w, hgt), long: Math.max(w, hgt) } : null;
+  return { kind, size, browser };
+}
+
+function deviceSignature(session) {
+  const { kind, size, browser } = deviceInfo(session);
+  return [kind ?? '?', size ? `${size.short}x${size.long}` : '?', browser ?? '?'].join('|');
+}
+
+function deviceDescription(session) {
+  const { kind, size, browser } = deviceInfo(session);
+  if (kind === null && size === null && browser === null) return '기기 정보 없음';
+  return [DEVICE_KIND[kind] ?? '종류 미상', size ? `${size.short}×${size.long}` : null, browser].filter(Boolean).join(' ');
+}
+
+function trendPoint(session, isCurrent, differentDevice = false) {
   const metrics = computeMetrics(cleanResponses(session));
   const badge = evaluateBadge(metrics);
   const status = STATUS[badge.status] ?? STATUS.caution;
@@ -353,6 +382,7 @@ function trendPoint(session, isCurrent) {
   const rate = hasRate ? metrics.correctRejections / metrics.noGoTrials : null;
   const tags = [];
   if (badge.status !== 'ok') tags.push(status.label);
+  if (differentDevice) tags.push('다른 기기');
   const li = h(
     'li',
     { class: 'trend-point', dataset: { trendPoint: '', ...(isCurrent ? { current: 'true' } : {}) } },
@@ -385,13 +415,29 @@ function trendSection(session) {
   if (points.length === 0) notes.push('이 단계에서 완료한 회차가 아직 없습니다.');
   else if (points.length === 1 && session.complete) notes.push('이 단계의 완료 회차가 이번 하나뿐이라 추이를 그릴 수 없습니다. 같은 학생이 같은 단계로 검사를 반복하면 쌓입니다.');
 
+  // 두 종류 이상의 기기가 섞였으면 알린다. 회차를 걸러내지 않는다(교사가 "회차가 왜 사라졌지" 하지 않게).
+  const signatures = points.map(deviceSignature);
+  const distinct = [...new Set(signatures)];
+  const mixed = distinct.length >= 2;
+  const mixedWarning = mixed
+    ? h(
+        'div',
+        { class: 'notice', dataset: { trendDeviceWarning: '' } },
+        h('p', { class: 'notice-title' }, h('span', { 'aria-hidden': 'true', text: '⚠ ' }), '서로 다른 기기에서 잰 회차가 섞여 있습니다'),
+        h('p', { text: `이 추이에는 ${distinct.length}종류의 기기에서 잰 회차가 함께 있습니다. 기기마다 터치 지연이 달라, 이 회차들 사이에서 반응시간(평균 반응속도, 반응 일관성)을 비교하지 마세요. 아래 억제 성공률은 기기 지연의 영향이 작아 추이로 볼 수 있지만, ${THRESHOLDS.anticipatoryMs / 1000}초 근처의 조급 반응 판정은 영향을 받을 수 있으니 기기가 다른 회차끼리는 참고로만 보세요.` }),
+        h('ul', {}, ...distinct.map((sig) => h('li', { text: deviceDescription(points[signatures.indexOf(sig)]) }))),
+      )
+    : null;
+  const currentSignature = deviceSignature(session);
+
   return h(
     'section',
     { class: 'result-section', dataset: { trend: '' } },
     h('h2', { text: `회차별 추이 (${levelText})` }),
     h('p', { text: `억제 성공률 = 참아야 할 때 참은 비율(참기 성공 ÷ 참아야 할 그림 수)입니다. 이 학생의 ${levelText} 완료 회차만 그렸습니다. 다른 단계와 중단한 회차는 넣지 않았습니다. 추이는 같은 기기에서 반복 검사했을 때만 쌓입니다.` }),
     ...notes.map((n) => h('p', { class: 'text-muted', dataset: { trendNote: '' }, text: n })),
-    points.length ? h('ol', { class: 'trend' }, ...points.map((s) => trendPoint(s, s.id === session.id))) : null,
+    mixedWarning,
+    points.length ? h('ol', { class: 'trend' }, ...points.map((s, i) => trendPoint(s, s.id === session.id, mixed && signatures[i] !== currentSignature))) : null,
   );
 }
 

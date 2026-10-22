@@ -993,6 +993,119 @@ describe('회차별 추이', () => {
 });
 
 // ============================================================================================
+// 추이의 기기 혼재 경고: 이 화면은 "다른 기기의 반응시간 절대값은 비교할 수 없다"고 적는다.
+// 가져오기로 다른 기기의 회차가 같은 추이에 섞이면 그 말과 그래프가 어긋나므로, 섞였다는 사실을 알린다(회차를 걸러내지 않는다).
+// 기기 동일성 = 기기 종류 + 화면 크기(짧은 변×긴 변) + 브라우저 이름(버전 제외).
+// ============================================================================================
+describe('추이의 기기 혼재 경고', () => {
+  const phone = { kind: 'phone', screenW: 390, screenH: 844, dpr: 3, browser: 'Chrome 152', inputKind: 'touch', refreshHzEst: 60 };
+  const warning = () => qs('[data-trend-device-warning]');
+
+  test('같은 기기 회차만 있으면 경고가 없다', () => {
+    seedSessions([{ level: 2, device: { ...phone } }, { level: 2, device: { ...phone } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(qsa('[data-trend-point]')).toHaveLength(3);
+    expect(warning()).toBeNull();
+    expect(qsa('[data-trend-point]').some((p) => /다른 기기/.test(p.textContent))).toBe(false);
+  });
+
+  test('회차가 하나뿐이면 경고가 없다', () => {
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(qsa('[data-trend-point]')).toHaveLength(1);
+    expect(warning()).toBeNull();
+  });
+
+  test('다른 기기 종류가 섞이면 경고가 나오고, 회차는 하나도 사라지지 않는다', () => {
+    seedSessions([{ level: 2, device: { ...phone, kind: 'tablet', screenW: 820, screenH: 1180 } }, { level: 2, device: { ...phone } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(qsa('[data-trend-point]')).toHaveLength(3);
+    expect(warning()).not.toBeNull();
+  });
+
+  test('기기 종류만 달라도(크기·브라우저는 같고) 다른 기기로 본다', () => {
+    seedSessions([{ level: 2, device: { ...phone, kind: 'tablet' } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(warning()).not.toBeNull();
+  });
+
+  test('화면 크기만 달라도, 브라우저 이름만 달라도 다른 기기로 본다', () => {
+    seedSessions([{ level: 2, device: { ...phone, screenW: 360, screenH: 800 } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(warning()).not.toBeNull();
+    screen.unmount(); document.body.replaceChildren(); setStorage(memoryStorage());
+
+    seedSessions([{ level: 2, device: { ...phone, browser: 'Safari 17' } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(warning()).not.toBeNull();
+  });
+
+  test('브라우저 버전만 다르거나(자동 업데이트) 화면을 돌려 가로·세로가 바뀐 것은 같은 기기다', () => {
+    seedSessions([
+      { level: 2, device: { ...phone, browser: 'Chrome 151' } },
+      { level: 2, device: { ...phone, screenW: 844, screenH: 390 } },
+    ]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(qsa('[data-trend-point]')).toHaveLength(3);
+    expect(warning()).toBeNull();
+  });
+
+  test('주사율·화면 배율만 다른 것은 기기 구분에 쓰지 않는다 (측정 실패로 null이 섞여도 경고하지 않는다)', () => {
+    seedSessions([{ level: 2, device: { ...phone, refreshHzEst: null, dpr: 2 } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(warning()).toBeNull();
+  });
+
+  test('기기 정보가 없는 옛 회차와 기기 정보가 있는 회차가 섞이면 경고한다 (같은 기기인지 확인할 수 없다)', () => {
+    seedSessions([{ level: 2, device: null }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(warning()).not.toBeNull();
+  });
+
+  test('기기 정보가 모두 없는 회차끼리는 서로 다르다고 말할 근거가 없어 경고하지 않는다', () => {
+    seedSessions([{ level: 2, device: null }]);
+    mountResult({ session: sessionFixture({ level: 2, device: null }) });
+    expect(warning()).toBeNull();
+  });
+
+  test('경고 문구: 섞였다는 사실, 반응시간 비교 불가, 억제 성공률은 영향이 작다는 구분', () => {
+    seedSessions([{ level: 2, device: { ...phone, kind: 'tablet', screenW: 820, screenH: 1180 } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    const t = warning().textContent;
+    expect(t).toMatch(/서로 다른 기기/);
+    expect(t).toMatch(/반응시간.*비교하지 마세요/);
+    expect(t).toMatch(/억제 성공률.*영향이 작/);
+    expect(t).toMatch(/2종류/);
+    expect(t).toContain('스마트폰');
+    expect(t).toContain('태블릿');
+    expect(t).not.toMatch(/undefined|null|NaN/);
+  });
+
+  test('이번 회차와 다른 기기에서 잰 점에는 "다른 기기" 표시가 붙는다', () => {
+    seedSessions([{ level: 2, device: { ...phone, kind: 'tablet', screenW: 820, screenH: 1180 } }, { level: 2, device: { ...phone } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    const tagged = qsa('[data-trend-point]').map((p) => /다른 기기/.test(p.textContent));
+    expect(tagged).toEqual([true, false, false]);
+  });
+
+  test('경고는 추이 영역 안에 있다', () => {
+    seedSessions([{ level: 2, device: { ...phone, browser: 'Firefox 130' } }]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(qs('[data-trend]').contains(warning())).toBe(true);
+  });
+
+  test('다른 단계·중단 회차의 기기는 보지 않는다 (추이에 그리지 않는 회차는 경고 근거가 아니다)', () => {
+    seedSessions([
+      { level: 3, device: { ...phone, kind: 'tablet', screenW: 820, screenH: 1180 } },
+      { level: 2, complete: false, device: { ...phone, kind: 'desktop', screenW: 1920, screenH: 1080 } },
+      { level: 2, device: { ...phone } },
+    ]);
+    mountResult({ session: sessionFixture({ level: 2, device: { ...phone } }) });
+    expect(qsa('[data-trend-point]')).toHaveLength(2);
+    expect(warning()).toBeNull();
+  });
+});
+
+// ============================================================================================
 // 화면 계약
 // ============================================================================================
 describe('화면 계약', () => {
