@@ -1,4 +1,5 @@
 import { computeMetrics } from '../js/metrics.js';
+import { THRESHOLDS } from '../js/config.js';
 
 // Response 모양을 만드는 헬퍼. index는 테스트마다 0부터 다시 센다.
 // rtMs가 null이면 허용 구간 안에 입력이 없었다는 뜻이다.
@@ -56,6 +57,46 @@ test('Go 누락의 최대 연속 길이를 세고, 참기 성공은 끊지도 �
 test('반응 일관성은 편차 경계로 라벨링된다', () => {
   expect(computeMetrics([go(600), go(620), go(590)]).consistency).toBe('good');
   expect(computeMetrics([go(300), go(900), go(1500)]).consistency).toBe('poor');
+});
+
+// 반응 일관성 라벨은 결과 화면의 해석 문장을 좌우한다: 'good'이면 "단계를 올리는 것을 검토", 'poor'이면 "주의가 계속 끊기고 있을 수 있다".
+// 다른 기준은 양쪽 경계를 모두 고정하는데 이것만 빠져 있어, 비교가 뒤집혀도 초록이었다.
+// 정반응 RT 세 개 [m−k, m, m+k]의 표본표준편차는 정확히 k이므로(합제곱 2k² ÷ (3−1) = k²) 경계에 정확히 놓을 수 있다.
+describe('반응 일관성 경계 (표본표준편차, ms): 120 이하 일정함 / 220 이하 보통 / 초과 들쭉날쭉', () => {
+  const withSd = (k) => computeMetrics([go(600 - k), go(600), go(600 + k)]);
+
+  test('테스트가 만드는 편차가 정확히 k이다 (경계 테스트의 전제)', () => {
+    expect(withSd(120).rtSd).toBe(120);
+    expect(withSd(220).rtSd).toBe(220);
+  });
+
+  test('경계 근처의 값: 120 이하는 good, 120을 넘으면 fair', () => {
+    expect(withSd(119.99).consistency).toBe('good');
+    expect(withSd(120).consistency).toBe('good');   // 정확히 120은 일정함 (<=)
+    expect(withSd(120.01).consistency).toBe('fair');
+  });
+
+  test('경계 근처의 값: 220 이하는 fair, 220을 넘으면 poor', () => {
+    expect(withSd(219.99).consistency).toBe('fair');
+    expect(withSd(220).consistency).toBe('fair');   // 정확히 220은 보통 (<=)
+    expect(withSd(220.01).consistency).toBe('poor');
+  });
+
+  test('fair 구간의 한가운데도 fair이다 (이 분기에는 테스트가 없었다)', () => {
+    expect(withSd(170).consistency).toBe('fair');
+    expect(computeMetrics([go(400), go(600), go(800)]).consistency).toBe('fair'); // 표본표준편차 200
+  });
+
+  test('편차가 0이어도(모두 같은 값) good이다', () => {
+    expect(computeMetrics([go(500), go(500), go(500)]).consistency).toBe('good');
+  });
+
+  test('경계값은 설정 상수에서 읽는다: 상수 두 개의 값이 라벨 경계다', () => {
+    expect(THRESHOLDS.consistencySdGoodMs).toBe(120);
+    expect(THRESHOLDS.consistencySdFairMs).toBe(220);
+    expect(withSd(THRESHOLDS.consistencySdGoodMs).consistency).toBe('good');
+    expect(withSd(THRESHOLDS.consistencySdFairMs).consistency).toBe('fair');
+  });
 });
 
 test('전반과 후반을 유효 문항 순서로 반씩 나눈다', () => {
