@@ -17,7 +17,7 @@ function newId() {
 
 // router: { go(name, params) }
 // goSetup(): 설정 화면으로 돌아간다(연습 중단 안내 뒤).
-// onSessionEnd(session, saveResult): 회차가 저장된 뒤(완료든 중단이든). 저장이 실패해도 불린다 — 결과 화면은 보여야 한다.
+// onSessionEnd(session, saveResult): 회차가 저장된 뒤 화면을 옮길 때(완료는 마무리 애니메이션 뒤, 중단은 곧바로). 저장이 실패해도 불린다 — 결과 화면은 보여야 한다.
 export function createFlow({
   router,
   goSetup,
@@ -32,7 +32,9 @@ export function createFlow({
     const trials = generateSequence(level, trialCount);
     const startedAt = now();
 
-    const end = (responses, complete) => {
+    // 저장은 검사가 끝나는 즉시 한다(마무리 애니메이션을 기다리지 않는다 — 학생이 그 사이 탭을 닫아도 회차가 남는다).
+    // 화면 이동(onSessionEnd)은 완료 때는 애니메이션이 끝난 뒤, 중단 때는 곧바로다.
+    const save = (responses, complete) => {
       const session = {
         id: newId(),
         studentAlias: setup.alias,
@@ -48,16 +50,22 @@ export function createFlow({
         device: collectDeviceInfo(globalThis),
         toolVersion: TOOL_VERSION,
       };
-      const saveResult = saveSession(session);
-      onSessionEnd?.(session, saveResult);
+      return { session, saveResult: saveSession(session) };
     };
 
+    let finished = null;
     router.go('test', {
       trials,
       level,
       theme,
-      onFinish: (responses) => end(responses, true),
-      onAbort: (responses) => end(responses, false),
+      onFinish: (responses) => { finished = save(responses, true); },
+      onCompleted: () => {
+        if (finished) onSessionEnd?.(finished.session, finished.saveResult);
+      },
+      onAbort: (responses) => {
+        const { session, saveResult } = save(responses, false);
+        onSessionEnd?.(session, saveResult);
+      },
     });
   }
 

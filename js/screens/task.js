@@ -2,7 +2,9 @@
 //
 // 화면 계약: createTaskScreen(deps) → { mount(rootEl, { trials, level, theme, onFinish, onAbort }), unmount() }.
 //   deps = { audio, createEngine } — 직접 import하지 않고 받는다(테스트가 엔진 호출과 소리 호출을 관찰한다).
-//   onFinish(responses): 마지막 문항이 끝나고 마무리 애니메이션이 지난 뒤. responses는 엔진의 onFinish가 준 배열이다.
+//   onFinish(responses): 엔진이 끝나는 즉시(마무리 애니메이션을 시작하는 때). responses는 엔진의 onFinish가 준 배열이다.
+//     저장은 여기서 한다 — 애니메이션은 학생을 위한 마무리이고 저장은 교사를 위한 자료라, 둘을 묶지 않는다.
+//   onCompleted(): 마무리 애니메이션이 끝난 뒤(COMPLETION_HOLD_MS). 화면 이동은 여기서 한다. 중단(onAbort)에는 불리지 않는다.
 //   onAbort(responses): 교사가 중단 버튼을 길게 눌렀을 때. 그때까지의 기록이다(진행 중이던 문항은 무효).
 //
 // 학생 화면에 문장은 한 줄도 없다. 오반응에는 소리·색·흔들림 어느 것도 없다 — 칸이 채워지지 않을 뿐이다.
@@ -22,7 +24,7 @@ export function createTaskScreen(deps) {
   return {
     mount(rootEl, params = {}) {
       teardown?.();
-      const { trials, level, theme, onFinish, onAbort } = params;
+      const { trials, level, theme, onFinish, onAbort, onCompleted } = params;
       const levelParams = LEVELS[level];
       if (!levelParams) throw new Error(`알 수 없는 난이도: ${level}`);
 
@@ -50,8 +52,11 @@ export function createTaskScreen(deps) {
           view.showCompletion(theme.completionGlyph);
           completionTimer = setTimeout(() => {
             completionTimer = null;
-            onFinish?.(responses);
+            onCompleted?.();
           }, COMPLETION_HOLD_MS);
+          // 저장은 마무리 애니메이션을 기다리지 않는다: 학생이 끝나자마자 탭을 닫아도 회차가 남아야 한다.
+          // 애니메이션을 먼저 시작해 두므로, 저장 쪽이 던져도 마무리와 화면 이동은 막히지 않는다.
+          onFinish?.(responses);
         },
       });
 

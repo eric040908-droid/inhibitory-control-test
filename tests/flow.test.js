@@ -3,7 +3,7 @@
 import { TOOL_VERSION, TRIAL_COUNTS, THRESHOLDS } from '../js/config.js';
 import { getTheme } from '../js/themes.js';
 import { createFlow } from '../js/flow.js';
-import { getSession, lastSetup, saveLastSetup, setStorage } from '../js/storage.js';
+import { getSession, listSessions, lastSetup, saveLastSetup, setStorage } from '../js/storage.js';
 
 function memoryStorage() {
   const map = new Map();
@@ -98,7 +98,10 @@ describe('회차 저장', () => {
     const responses = [{ index: 0, type: 'go', rtMs: 500, extraTaps: 2, invalid: false }];
     last().params.onFinish(responses);
 
+    // 저장은 onFinish 즉시 — 마무리 애니메이션(onCompleted)을 기다리지 않는다. 화면 이동은 그 뒤다.
     expect(saveSession).toHaveBeenCalledTimes(1);
+    expect(onSessionEnd).not.toHaveBeenCalled();
+    last().params.onCompleted();
     const session = saveSession.mock.calls[0][0];
     expect(session).toMatchObject({
       studentAlias: '학생1', themeId: 'animal', length: 'medium', level: 2, complete: true,
@@ -131,6 +134,24 @@ describe('회차 저장', () => {
     expect(saveSession.mock.calls[0][0].level).toBe(1);
   });
 
+  test('저장은 애니메이션이 끝나지 않아도 되어 있다: onCompleted가 영영 안 와도 회차는 저장소에 있다', () => {
+    const { last, onSessionEnd } = startAndFinish({}, { ...SETUP, levelOverride: 2 });
+    last().params.onFinish([{ index: 0, type: 'go', rtMs: 400, extraTaps: 0, invalid: false }]);
+    const stored = listSessions('학생1');
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ complete: true, studentAlias: '학생1' });
+    expect(onSessionEnd).not.toHaveBeenCalled();
+  });
+
+  test('onCompleted가 두 번 와도 화면 이동은 한 번만이고, 완료 전에 오면 무시한다', () => {
+    const { last, onSessionEnd } = startAndFinish({ saveSession: vi.fn(() => ({ ok: true })), collectDeviceInfo: () => ({}) }, { ...SETUP, levelOverride: 2 });
+    last().params.onCompleted(); // onFinish 전: 저장된 회차가 없다
+    expect(onSessionEnd).not.toHaveBeenCalled();
+    last().params.onFinish([]);
+    last().params.onCompleted();
+    expect(onSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
   test('중단하면 미완료 회차로 저장한다 (참여도 자체가 정보다)', () => {
     const saveSession = vi.fn(() => ({ ok: true }));
     const { last, onSessionEnd } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}) });
@@ -146,6 +167,7 @@ describe('회차 저장', () => {
     const saveSession = vi.fn(() => ({ ok: false, error: 'QuotaExceededError' }));
     const { last, onSessionEnd } = startAndFinish({ saveSession, collectDeviceInfo: () => ({}) });
     last().params.onFinish([]);
+    last().params.onCompleted();
     expect(onSessionEnd).toHaveBeenCalledTimes(1);
     expect(onSessionEnd.mock.calls[0][1]).toEqual({ ok: false, error: 'QuotaExceededError' });
   });
@@ -153,6 +175,7 @@ describe('회차 저장', () => {
   test('실제 저장소에 들어가고 다시 읽힌다', () => {
     const { last, onSessionEnd } = startAndFinish({}, { ...SETUP, levelOverride: 2 });
     last().params.onFinish([{ index: 0, type: 'go', rtMs: 400, extraTaps: 1, invalid: false }]);
+    last().params.onCompleted();
     const session = onSessionEnd.mock.calls[0][0];
     expect(onSessionEnd.mock.calls[0][1]).toEqual({ ok: true });
     expect(getSession(session.id)).toMatchObject({ studentAlias: '학생1', level: 2, complete: true });

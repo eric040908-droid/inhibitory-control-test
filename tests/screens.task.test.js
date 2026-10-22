@@ -39,6 +39,7 @@ function mountTask({ trials = trialsOf(10), level = 2, theme = getTheme('animal'
   document.body.append(root);
   const onFinish = vi.fn();
   const onAbort = vi.fn();
+  const onCompleted = vi.fn();
   const engineFactory = createEngine ?? vi.fn((args) => {
     engineArgs = args;
     hooks = args.hooks;
@@ -47,8 +48,8 @@ function mountTask({ trials = trialsOf(10), level = 2, theme = getTheme('animal'
   });
   responseIndex = 0;
   screen = createTaskScreen({ audio, createEngine: engineFactory });
-  screen.mount(root, { trials, level, theme, onFinish, onAbort });
-  return { root, engine, hooks, audio, onFinish, onAbort, createEngine: engineFactory, theme, trials };
+  screen.mount(root, { trials, level, theme, onFinish, onAbort, onCompleted });
+  return { root, engine, hooks, audio, onFinish, onAbort, onCompleted, createEngine: engineFactory, theme, trials };
 }
 
 const qs = sel => document.querySelector(sel);
@@ -132,7 +133,9 @@ describe('계획서의 테스트', () => {
   });
 
   test('정반응과 참기 성공에 격자 칸이 하나씩 채워진다', () => {
-    mountTask({ trials: [goTrial(0), nogoTrial(1)] });
+    // 문항 3개 → 격자 2칸(floor(3 × 0.70) = 2). 문항 2개는 1칸뿐이라
+    // 두 칸을 채우는 것을 확인할 수 없다.
+    mountTask({ trials: [goTrial(0), nogoTrial(1), goTrial(2)] });
     completeTrial({ type: 'go', rtMs: 500 });
     expect(filledCells()).toBe(1);
     completeTrial({ type: 'nogo', rtMs: null });
@@ -184,19 +187,7 @@ describe('계획서의 테스트', () => {
 // 경계 확인 — 앞선 태스크들에서 일회성으로 확인하고 지나간 것들을 테스트로 남긴다.
 // ======================================================================================
 
-describe('계획서 테스트 보충: 칸 수 규칙과 맞물리는 형태', () => {
-  // 계획서의 '정반응과 참기 성공에 격자 칸이 하나씩 채워진다'는 2문항으로 두 칸이 채워지길 기대한다.
-  // 그러나 칸 수는 max(1, floor(2 × 0.7)) = 1칸이라, 그 테스트는 칸 수 규칙(70%)과 '넘치지 않는다' 둘 중 하나와 부딪친다.
-  // 여기서는 같은 두 경우(Go 정반응 → 참기 성공)를 칸이 둘 이상 되는 문항 수로 확인한다.
-  test('정반응과 참기 성공이 칸을 하나씩 채운다 (3문항 = 2칸)', () => {
-    mountTask({ trials: [goTrial(0), goTrial(1), nogoTrial(2)] });
-    expect(totalCells()).toBe(2);
-    completeTrial({ type: 'go', rtMs: 500 });
-    expect(filledCells()).toBe(1);
-    completeTrial({ type: 'nogo', rtMs: null });
-    expect(filledCells()).toBe(2);
-  });
-
+describe('칸 수 최소값', () => {
   test('2문항이면 칸은 1칸이다 (최소 1칸)', () => {
     mountTask({ trials: [goTrial(0), nogoTrial(1)] });
     expect(totalCells()).toBe(1);
@@ -319,16 +310,51 @@ describe('마무리 애니메이션', () => {
     expect(qs('[data-completion]')).toBeNull();
   });
 
-  test('onFinish는 마무리 시간이 지난 뒤에 엔진이 준 배열 그대로 한 번 불린다', () => {
-    const { onFinish } = mountTask({ trials: trialsOf(3) });
+  // 저장(교사를 위한 자료)은 마무리 애니메이션(학생을 위한 마무리)을 기다리지 않는다.
+  // 애니메이션 중에 학생이 탭을 닫아도 회차가 남아야 한다.
+  test('엔진이 끝나는 즉시 onFinish가 엔진이 준 배열 그대로 한 번 불린다 (애니메이션 타이머와 무관)', () => {
+    const { onFinish, onCompleted } = mountTask({ trials: trialsOf(3) });
     const final = [go(500), go(null), go(500)];
     finishWith(final);
-    expect(onFinish).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(COMPLETION_HOLD_MS - 1);
-    expect(onFinish).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
     expect(onFinish).toHaveBeenCalledTimes(1);
     expect(onFinish.mock.calls[0][0]).toBe(final);
+    expect(qs('[data-completion]')).not.toBeNull(); // 애니메이션은 아직 재생 중
+    expect(onCompleted).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(COMPLETION_HOLD_MS * 4);
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+
+  test('마무리 시간이 지난 뒤에야 onCompleted가 한 번 불린다 (화면 이동용)', () => {
+    const { onCompleted } = mountTask({ trials: trialsOf(3) });
+    finishWith([go(500), go(null), go(500)]);
+    vi.advanceTimersByTime(COMPLETION_HOLD_MS - 1);
+    expect(onCompleted).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  test('애니메이션 중에 떠나도(탭을 닫아도) onFinish는 이미 불렸고 onCompleted만 불리지 않는다', () => {
+    const { onFinish, onCompleted } = mountTask({ trials: trialsOf(2) });
+    finishWith([go(500), go(500)]);
+    screen.unmount();
+    vi.advanceTimersByTime(60000);
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(onCompleted).not.toHaveBeenCalled();
+  });
+
+  test('onFinish(저장)가 던져도 마무리 애니메이션과 화면 이동은 막히지 않는다', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const onCompleted = vi.fn();
+    screen = createTaskScreen({ audio: makeAudio(), createEngine: vi.fn((args) => { hooks = args.hooks; return makeEngine(); }) });
+    screen.mount(root, {
+      trials: trialsOf(2), level: 2, theme: getTheme('animal'),
+      onFinish: () => { throw new Error('저장 실패'); }, onAbort: vi.fn(), onCompleted,
+    });
+    expect(() => finishWith([go(500), go(500)])).toThrow('저장 실패');
+    expect(qs('[data-completion]')).not.toBeNull();
+    vi.advanceTimersByTime(COMPLETION_HOLD_MS);
+    expect(onCompleted).toHaveBeenCalledTimes(1);
   });
 
   test('onTrialComplete가 준 스냅샷을 모으지 않는다: onFinish에는 엔진의 최종 배열이 간다', () => {
@@ -336,7 +362,6 @@ describe('마무리 애니메이션', () => {
     completeTrial({ type: 'go', rtMs: 500 }); // 스냅샷: extraTaps 0
     const final = [{ index: 0, type: 'go', rtMs: 500, extraTaps: 3, invalid: false }, go(null)];
     finishWith(final);
-    vi.advanceTimersByTime(COMPLETION_HOLD_MS);
     expect(onFinish.mock.calls[0][0][0].extraTaps).toBe(3);
   });
 
@@ -689,12 +714,13 @@ describe('중단 버튼', () => {
     expect(onAbort.mock.calls[0][0]).toBe(partial);
   });
 
-  test('중단하면 마무리 애니메이션이 나오지 않고 onFinish도 불리지 않는다', () => {
-    const { onFinish } = mountTask();
+  test('중단하면 마무리 애니메이션이 나오지 않고 onFinish·onCompleted도 불리지 않는다', () => {
+    const { onFinish, onCompleted } = mountTask();
     holdFor(qs('[data-abort]'), ABORT_HOLD_MS);
     vi.advanceTimersByTime(60000);
     expect(qs('[data-completion]')).toBeNull();
     expect(onFinish).not.toHaveBeenCalled();
+    expect(onCompleted).not.toHaveBeenCalled();
   });
 
   test('중단 뒤 대기 중이던 시작은 일어나지 않는다', () => {
@@ -780,12 +806,12 @@ describe('unmount가 모든 것을 거둔다', () => {
     expect(onAbort).not.toHaveBeenCalled();
   });
 
-  test('마무리 애니메이션 중에 떠나면 onFinish가 불리지 않는다', () => {
-    const { onFinish } = mountTask({ trials: trialsOf(2) });
+  test('마무리 애니메이션 중에 떠나면 onCompleted가 불리지 않고 타이머가 남지 않는다', () => {
+    const { onCompleted } = mountTask({ trials: trialsOf(2) });
     finishWith([go(500), go(500)]);
     screen.unmount();
     vi.advanceTimersByTime(60000);
-    expect(onFinish).not.toHaveBeenCalled();
+    expect(onCompleted).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -915,8 +941,7 @@ describe('진짜 엔진', () => {
     vi.advanceTimersByTime(100); tapAtNow();
     vi.advanceTimersByTime(100); tapAtNow();
 
-    vi.advanceTimersByTime(60000); // 나머지 문항(무반응)을 지나 끝까지
-    vi.advanceTimersByTime(COMPLETION_HOLD_MS);
+    vi.advanceTimersByTime(60000); // 나머지 문항(무반응)을 지나 끝까지 — 마무리 시간은 기다리지 않아도 onFinish가 이미 불렸다
 
     expect(onFinish).toHaveBeenCalledTimes(1);
     const responses = onFinish.mock.calls[0][0];
