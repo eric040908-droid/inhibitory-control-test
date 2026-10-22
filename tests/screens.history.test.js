@@ -335,14 +335,20 @@ describe('내보내기', () => {
     expect(revoked).toEqual([]);
   });
 
-  test('unmount는 해제 타이머를 거둔다 (화면이 없는데 타이머가 남지 않는다)', () => {
+  test('unmount 뒤에도 해제 타이머는 살아 있어 30초 뒤 해제된다 (blob이 탭이 닫힐 때까지 남지 않는다), 한 번만', () => {
     vi.useFakeTimers();
     seedSessions([{ id: 'a' }]);
     mountHistory();
     click(qs('[data-export="json"]'));
-    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    click(qs('[data-export="csv"]'));
     screen.unmount();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(revoked).toEqual([]);                 // 곧바로는 해제하지 않는다
+    vi.advanceTimersByTime(29_999);
+    expect(revoked).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect([...revoked].sort()).toEqual(['blob:mock/1', 'blob:mock/2']);
+    vi.advanceTimersByTime(120_000);
+    expect(revoked).toHaveLength(2);             // 다시 해제하지 않는다
   });
 
   test('회차 줄을 눌러 나가는 실제 순서(내려받기 → 줄 탭 → 화면 교체)에서도 URL은 살아 있다', () => {

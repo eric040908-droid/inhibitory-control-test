@@ -975,6 +975,27 @@ describe('PIN 잠금 중에는 다른 학생의 별칭을 DOM에 올리지 않�
     expect(qs('input[name="alias"]').getAttribute('value')).toBeNull();
   });
 
+  // 이름을 가리면 "이 버튼이 누구로 기록하는가"를 확인할 수단이 사라진다. 학생을 돌려 쓰는 교사가 모르고 누르면 다른 학생의 자료가
+  // 지난 학생의 이름으로 조용히 기록된다. 이름은 숨기되 그 사실은 말로 알려야 한다.
+  test('PIN 잠금 중 바로 시작 위에, 이 버튼이 지난번 학생의 이름으로 기록한다는 말과 다른 학생이면 할 일이 있고, 이름은 없다', () => {
+    seed();
+    localStorage.setItem(PIN_KEY, '1234');
+    mountSetup();
+    const note = qs('[data-quick-attribution]').textContent;
+    expect(note).toMatch(/지난번에 검사한 학생의 이름으로 기록/);
+    expect(note).toMatch(/다른 학생이면/);
+    expect(note).toMatch(/별칭을 새로 입력/);
+    for (const name of NAMES) expect(note, name).not.toContain(name);
+    expect(qs('.quick-start').contains(qs('[data-quick-attribution]'))).toBe(true);
+    for (const name of NAMES) expect(everythingTheStudentCouldSee(), name).not.toContain(name);
+  });
+
+  test('PIN이 꺼져 있으면 이름이 보이므로 그 경고는 없다', () => {
+    seed();
+    mountSetup();
+    expect(qs('[data-quick-attribution]')).toBeNull();
+  });
+
   test('PIN이 켜져 있어도 바로 시작은 지난 설정 그대로 동작한다 (교사 개입 최소화)', () => {
     seed();
     localStorage.setItem(PIN_KEY, '1234');

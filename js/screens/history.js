@@ -101,14 +101,13 @@ export function createHistoryScreen() {
     try { URL.revokeObjectURL(url); } catch { /* 해제하지 못해도 화면은 그대로다 */ }
   }
 
-  // 화면을 떠날 때 타이머는 거두지만 URL은 해제하지 않는다. 교사는 방금 "내려받기를 시작했습니다"를 읽었는데, 곧바로 회차 줄을
-  // 누르면(mount → unmount) 해제가 먼저 일어나 일부 브라우저가 다운로드를 취소한다 — JSON 백업은 몇 달치 회차를 잃지 않게 하는
-  // 유일한 보험인데 교사는 받아졌다고 믿는다. 해제하지 않은 URL은 페이지가 닫힐 때 브라우저가 거둔다(내보내기 한 번에 파일 하나뿐이다).
+  // 화면을 떠날 때 URL을 곧바로 해제하지 않고, 해제 타이머도 지우지 않는다. 교사는 방금 "내려받기를 시작했습니다"를 읽었는데 곧바로
+  // 회차 줄을 누르면(mount → unmount) 즉시 해제가 다운로드를 취소하는 브라우저가 있다 — JSON 백업은 몇 달치 회차를 잃지 않게 하는
+  // 유일한 보험이다. 타이머는 그대로 두면 30초 뒤(다운로드가 이미 시작된 뒤) 해제되어 blob이 탭이 닫힐 때까지 남지 않는다.
+  // 타이머는 pendingUrls만 만지므로 화면이 없어도 무해하다.
   function unmount() {
     controller?.abort();
     controller = null;
-    for (const timer of pendingUrls.values()) clearTimeout(timer);
-    pendingUrls.clear();
   }
 
   function mount(rootEl, params = {}) {

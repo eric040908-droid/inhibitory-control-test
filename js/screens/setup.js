@@ -208,8 +208,15 @@ export function createSetupScreen(deps) {
           h('p', {
             dataset: { quickSummary: '' },
             text: locked
-              ? `지난 검사와 같은 설정(PIN 잠금 중이라 학생 이름은 가립니다): ${theme.label} · ${lengthLabel} · 난이도 ${levelLabel(saved.level)}`
+              ? `지난 검사와 같은 설정: ${theme.label} · ${lengthLabel} · 난이도 ${levelLabel(saved.level)}`
               : `지난 검사와 같은 설정: ${saved.alias} · ${theme.label} · ${lengthLabel} · 난이도 ${levelLabel(saved.level)}`,
+          }),
+          // 이름이 보이던 때는 그 이름이 "이 버튼이 누구로 기록하는가"를 확인하는 유일한 수단이었다. 가린 뒤에는 말로 알려야 한다:
+          // 학생을 돌려 쓰는 교사가 모르고 누르면 다른 학생의 자료가 지난 학생의 이름으로 조용히 기록된다(분석 때 찾을 수 없다).
+          locked && h('p', {
+            class: 'notice-title',
+            dataset: { quickAttribution: '' },
+            text: '⚠ 이 버튼은 지난번에 검사한 학생의 이름으로 기록합니다(PIN 잠금 중이라 이름은 가립니다). 다른 학생이면 누르지 말고 아래에서 별칭을 새로 입력하세요.',
           }),
           worst && h('p', { dataset: { notice: 'quick-start-shortage' }, text: `⚠ ${shortageLead(saved.level, worst)}` }),
           quick,
