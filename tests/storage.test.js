@@ -3,7 +3,7 @@ import { collectDeviceInfo, measureRefreshHz } from '../js/deviceInfo.js';
 import {
   STORAGE_KEY, SCHEMA_VERSION, setStorage,
   saveSession, isAvailable, listStudents, listSessions, getSession, trendSessions,
-  replaceAll, lastSetup, saveLastSetup, readRaw,
+  replaceAll, lastSetup, saveLastSetup, readRaw, readAll, storageStatus,
 } from '../js/storage.js';
 
 // ---- 저장소 스텁 --------------------------------------------------------
@@ -564,5 +564,85 @@ describe('storageStatus', () => {
     const { storageStatus } = await import('../js/storage.js');
     stubStorageThatThrows();
     expect(storageStatus().status).toBe('unreadable');
+  });
+});
+
+// ---- readAll: 한 번 읽어서 이력 화면이 필요한 것을 전부 돌려준다 ----------------
+describe('readAll', () => {
+  const seed = () => {
+    saveSession(sessionFixture({ id: 'h2', studentAlias: '하늘', startedAt: 4000 }));
+    saveSession(sessionFixture({ id: 'g1', studentAlias: '가람', startedAt: 3000 }));
+    saveSession(sessionFixture({ id: 'h1', studentAlias: '하늘', startedAt: 1000 }));
+    saveSession(sessionFixture({ id: 'g0', studentAlias: '가람', startedAt: 2000, complete: false }));
+  };
+
+  test('listStudents와 listSessions를 이어 붙인 것과 정확히 같다 (같은 순서)', () => {
+    seed();
+    const all = readAll();
+    expect(all.status).toBe('ok');
+    expect(all.students.map((x) => x.alias)).toEqual(listStudents());
+    for (const { alias, sessions } of all.students) expect(sessions).toEqual(listSessions(alias));
+    expect(all.sessions).toEqual(listStudents().flatMap((alias) => listSessions(alias)));
+    expect(all.sessions.map((x) => x.id)).toEqual(['g0', 'g1', 'h1', 'h2']);
+  });
+
+  test('저장소를 한 번만 읽고 한 번만 파싱한다 (학생이 몇 명이든)', () => {
+    for (let i = 0; i < 30; i += 1) saveSession(sessionFixture({ id: `s${i}`, studentAlias: `학생${i % 15}`, startedAt: i }));
+    let reads = 0;
+    setStorage({ getItem: (k) => { reads += 1; return memory.getItem(k); }, setItem: (k, v) => memory.setItem(k, v), removeItem: (k) => memory.removeItem(k) });
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      const all = readAll();
+      expect(all.students).toHaveLength(15);
+      expect(reads).toBe(1);
+      expect(parse).toHaveBeenCalledTimes(1);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  test('비어 있으면 status가 empty이고 목록은 비어 있다', () => {
+    expect(readAll()).toEqual({ status: 'empty', sessions: [], students: [] });
+  });
+
+  test('시작 시각이 같으면 저장한 순서를 지킨다', () => {
+    saveSession(sessionFixture({ id: 'first', startedAt: 1000 }));
+    saveSession(sessionFixture({ id: 'second', startedAt: 1000 }));
+    expect(readAll().students[0].sessions.map((x) => x.id)).toEqual(['first', 'second']);
+  });
+
+  test('읽을 수 없는 자료(깨진 JSON, 다른 버전, 손상된 레코드)는 던지지 않고 status와 오류를 알리며, storageStatus와 같은 말을 한다', () => {
+    for (const raw of ['{깨진', JSON.stringify({ schemaVersion: 99, sessions: [] }), JSON.stringify({ schemaVersion: 1, sessions: [null] })]) {
+      memory.setItem(STORAGE_KEY, raw);
+      const all = readAll();
+      expect(all.status).toBe('unreadable');
+      expect(typeof all.error).toBe('string');
+      expect(all.error).toBe(storageStatus().error);
+      expect(all.sessions).toEqual([]);
+      expect(all.students).toEqual([]);
+    }
+  });
+
+  test('저장소 접근이 막혀 있거나 저장소가 아예 없어도 던지지 않는다 (이 모듈의 계약)', () => {
+    stubStorageThatThrows();
+    expect(() => readAll()).not.toThrow();
+    expect(readAll().status).toBe('unreadable');
+    setStorage(null); // node에는 전역 localStorage가 없다
+    expect(() => readAll()).not.toThrow();
+    expect(readAll().status).toBe('unreadable');
+  });
+
+  test('한 레코드의 별칭이 이상해도(빈 문자열) 던지지 않고 한 학생으로 묶는다', () => {
+    saveSession(sessionFixture({ id: 'e1', studentAlias: '' }));
+    saveSession(sessionFixture({ id: 'e2', studentAlias: '' }));
+    expect(readAll().students).toEqual([expect.objectContaining({ alias: '' })]);
+    expect(readAll().students[0].sessions).toHaveLength(2);
+  });
+
+  test('돌려준 목록을 고쳐도 저장된 자료는 바뀌지 않는다', () => {
+    saveSession(sessionFixture({ id: 'a' }));
+    readAll().sessions.length = 0;
+    readAll().students.length = 0;
+    expect(readAll().sessions).toHaveLength(1);
   });
 });

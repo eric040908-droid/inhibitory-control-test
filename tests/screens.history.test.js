@@ -1038,3 +1038,85 @@ describe('unmount', () => {
     expect(second.onOpenSession).toHaveBeenCalledTimes(1);
   });
 });
+
+// ============================================================================================
+// 저장소를 읽는 횟수 (성능)
+// 저장소의 읽기 함수는 부를 때마다 getItem + JSON.parse + 전체 검증을 새로 한다. 학생별로 listSessions를 부르면 학생이 N명일 때
+// 한 번 그릴 때 2N + 3번 파싱했고, 다시 그릴 때마다(안내, PIN, 초기화 열기/취소) 되풀이했다. 이 화면은 백업을 받는 곳이라
+// 탭마다 느리면 쓰이지 않는다. 그리는 동안은 한 번만 읽는다 — 학생이 몇 명이든 같은 횟수여야 한다.
+// ============================================================================================
+describe('저장소를 읽는 횟수는 학생 수와 무관하다', () => {
+  const seedStudents = (n, perStudent = 3) => {
+    const list = [];
+    for (let s = 0; s < n; s += 1) for (let k = 0; k < perStudent; k += 1) list.push({ studentAlias: `학생${String(s).padStart(2, '0')}`, level: 1 + (k % 3) });
+    seedSessions(list);
+  };
+  const countParses = (fn) => {
+    const spy = vi.spyOn(JSON, 'parse');
+    try { fn(); return spy.mock.calls.length; } finally { spy.mockRestore(); }
+  };
+
+  test('처음 그릴 때 한 번만 파싱한다 (학생 2명이든 20명이든)', () => {
+    seedStudents(2);
+    expect(countParses(() => mountHistory())).toBe(1);
+    screen.unmount(); document.body.replaceChildren();
+    memory = memoryStorage(); setStorage(memory);
+    seedStudents(20);
+    expect(countParses(() => mountHistory())).toBe(1);
+    expect(qsa('[data-student]')).toHaveLength(20);
+  });
+
+  test('다시 그릴 때마다(초기화 열기, 취소) 한 번만 파싱한다', () => {
+    seedStudents(20);
+    mountHistory();
+    expect(countParses(() => click(qs('[data-action="reset"]')))).toBe(1);
+    expect(qs('[data-reset-panel]')).not.toBeNull();
+    expect(countParses(() => click(qs('[data-action="reset-cancel"]')))).toBe(1);
+  });
+
+  test('PIN을 켜고 끌 때(안내를 띄우며 다시 그린다)도 한 번만 파싱한다', () => {
+    seedStudents(20);
+    mountHistory();
+    const input = qs('[data-pin-set-input]');
+    input.value = '1234';
+    expect(countParses(() => qs('[data-pin-set-form]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))).toBe(1);
+    expect(isEnabled()).toBe(true);
+    expect(countParses(() => click(qs('[data-action="pin-off"]')))).toBe(1);
+  });
+
+  test('회차 줄을 탭하면 한 번만 파싱한다', () => {
+    seedStudents(20);
+    const { onOpenSession } = mountHistory();
+    const first = qs('[data-session-row]');
+    expect(countParses(() => click(first))).toBe(1);
+    expect(onOpenSession).toHaveBeenCalledTimes(1);
+    expect(onOpenSession.mock.calls[0][0].id).toBe(first.dataset.sessionRow);
+  });
+
+  test('내보내기(JSON, CSV)도 저장소를 한 번만 읽는다', () => {
+    seedStudents(20);
+    mountHistory();
+    expect(countParses(() => click(qs('[data-export="json"]')))).toBeLessThanOrEqual(2); // 읽기 1 + 안내를 다시 그리며 1
+    expect(countParses(() => click(qs('[data-export="csv"]')))).toBeLessThanOrEqual(2);
+    expect(downloads).toHaveLength(2);
+  });
+
+  test('읽을 수 없는 저장소를 그릴 때도 한 번만 시도한다', () => {
+    memory.setItem(STORAGE_KEY, '{깨진');
+    expect(countParses(() => mountHistory())).toBe(1);
+    expect(qs('[data-notice="unreadable"]')).not.toBeNull();
+  });
+
+  test('한 번만 읽어도 화면의 내용은 같다: 학생 가나다순, 학생 안에서는 최근 회차가 먼저', () => {
+    seedSessions([
+      { id: 'b1', studentAlias: '하늘', startedAt: 1000 },
+      { id: 'a1', studentAlias: '가람', startedAt: 2000 },
+      { id: 'a2', studentAlias: '가람', startedAt: 3000 },
+      { id: 'b2', studentAlias: '하늘', startedAt: 4000 },
+    ]);
+    mountHistory();
+    expect(qsa('[data-student]').map((d) => d.dataset.student)).toEqual(['가람', '하늘']);
+    expect(qsa('[data-student="가람"] [data-session-row]').map((r) => r.dataset.sessionRow)).toEqual(['a2', 'a1']);
+    expect(qsa('[data-student="하늘"] [data-session-row]').map((r) => r.dataset.sessionRow)).toEqual(['b2', 'b1']);
+  });
+});

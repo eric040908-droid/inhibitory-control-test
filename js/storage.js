@@ -113,6 +113,11 @@ function update(mutate) {
   return writeData(data);
 }
 
+// 시작 시각 오름차순(오래된 회차가 먼저). 같으면 저장한 순서를 지킨다(Array.prototype.sort는 안정 정렬).
+function byStartedAt(a, b) {
+  return a.startedAt - b.startedAt;
+}
+
 // ---- 공개 함수 -------------------------------------------------------------
 // 저장소를 실제로 쓸 수 있는지 확인한다(쓰고 지워 본다). 탐침 키는 남기지 않는다.
 export function isAvailable() {
@@ -150,6 +155,37 @@ export function storageStatus() {
   return state.status === 'unreadable' ? { status: 'unreadable', error: state.error } : { status: state.status };
 }
 
+// 한 번 읽어서 화면이 필요로 하는 것을 전부 돌려준다. 이력 화면용이다.
+//
+// 위의 읽기 함수들은 호출할 때마다 getItem + JSON.parse + 전체 검증을 새로 한다. 학생별로 listSessions를 부르면
+// 학생 수 N에 대해 2N + 3번을 파싱한다(storageStatus 1, listStudents 1 + 학생마다 listSessions N, 다시 listStudents 1 + N).
+// 이 화면은 다시 그릴 때마다(안내 띄우기, PIN, 초기화 열기/취소) 그것을 되풀이했다. 저장소가 클수록(상한에 가까울수록) 탭마다 느려지는데,
+// 이 화면은 백업을 받는 곳이라 느리면 쓰이지 않는다. 그래서 한 번만 읽는다.
+//
+//   { status: 'empty' | 'ok', sessions, students }
+//   { status: 'unreadable', error, sessions: [], students: [] }
+//   students: [{ alias, sessions }] — 별칭 가나다순(중복 없음), 각 학생의 회차는 시작 시각 오름차순(listStudents·listSessions와 같다).
+//   sessions: students를 펼친 전체 회차(별칭 순, 그 안에서 오래된 회차 먼저) — 예전 allSessions()와 같은 순서.
+// 던지지 않는다(이 모듈의 계약): 읽을 수 없으면 status로 알리고 빈 목록을 준다.
+export function readAll() {
+  try {
+    const state = readState();
+    if (state.status === 'unreadable') return { status: 'unreadable', error: state.error, sessions: [], students: [] };
+    if (state.status === 'empty') return { status: 'empty', sessions: [], students: [] };
+    const byAlias = new Map();
+    for (const s of state.data.sessions) {
+      if (!byAlias.has(s.studentAlias)) byAlias.set(s.studentAlias, []);
+      byAlias.get(s.studentAlias).push(s);
+    }
+    const students = [...byAlias.keys()]
+      .sort((a, b) => a.localeCompare(b, 'ko'))
+      .map((alias) => ({ alias, sessions: byAlias.get(alias).sort(byStartedAt) }));
+    return { status: 'ok', sessions: students.flatMap((student) => student.sessions), students };
+  } catch (e) {
+    return { status: 'unreadable', error: describeError(e), sessions: [], students: [] };
+  }
+}
+
 // 같은 id가 이미 있으면 교체한다(검사 도중 저장 후 완료 저장처럼 같은 회차를 두 번 저장할 수 있다).
 // toolVersion은 항상 지금의 TOOL_VERSION으로 찍는다 — 호출한 쪽이 빠뜨려도 모든 회차에 남도록.
 export function saveSession(session) {
@@ -161,11 +197,6 @@ export function saveSession(session) {
     if (at >= 0) data.sessions[at] = stamped;
     else data.sessions.push(stamped);
   });
-}
-
-// 시작 시각 오름차순(오래된 회차가 먼저). 같으면 저장한 순서를 지킨다(Array.prototype.sort는 안정 정렬).
-function byStartedAt(a, b) {
-  return a.startedAt - b.startedAt;
 }
 
 // 가나다순 학생 별칭, 중복 없음.

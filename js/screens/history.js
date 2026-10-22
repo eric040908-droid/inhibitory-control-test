@@ -17,9 +17,7 @@
 // 이 화면은 글을 쓰는 교사 화면이다. 버튼은 click이다(스크롤하는 화면이라 pointerdown이면 스크롤하려는 손가락이 눌린다).
 import { THEMES } from '../themes.js';
 import { toTrialCsv, toBackupJson, parseBackupJson } from '../exportImport.js';
-import {
-  listStudents, listSessions, readRaw, replaceAll, storageStatus, validationError,
-} from '../storage.js';
+import { readAll, readRaw, replaceAll, validationError } from '../storage.js';
 import * as pin from '../pin.js';
 import { gateView, verifySubmit } from './pinGate.js';
 
@@ -75,8 +73,6 @@ function sessionSummary(session) {
   const trials = Number.isFinite(session.trialCount) ? ` (${session.trialCount}문항)` : '';
   return { date: formatDate(session.startedAt), meta: `${level} · ${theme} · ${lengthName}${trials}` };
 }
-
-const allSessions = () => listStudents().flatMap((alias) => listSessions(alias));
 
 // 파일 읽기: FileReader는 jsdom과 구형 브라우저에서도 된다(File.text()는 아니다).
 function readFileText(file) {
@@ -170,8 +166,9 @@ export function createHistoryScreen() {
         note = '저장된 원본 그대로입니다. 읽을 수 없는 상태라 이 도구에서 다시 가져올 수는 없지만, 파일로 남겨 두면 나중에 복구를 시도할 수 있습니다.';
       } else {
         // 그 사이 저장소가 읽을 수 없게 됐다면 빈 파일을 백업이라고 내주지 않는다.
-        if (storageStatus().status === 'unreadable') { render(); return; }
-        const sessions = allSessions();
+        const all = readAll();
+        if (all.status === 'unreadable') { render(); return; }
+        const sessions = all.sessions;
         if (sessions.length === 0) return;
         if (kind === 'csv') {
           // UTF-8 BOM이 없으면 엑셀이 한글 별칭을 깨뜨린다. 문자열 생성(toTrialCsv)과 다운로드는 다른 책임이라 BOM은 여기서 붙인다.
@@ -196,7 +193,8 @@ export function createHistoryScreen() {
     // 읽을 수 없는 저장소에는 가져오지 않는다: 병합은 "기존 기록"을 읽어서 하는데 읽을 수 없으면 빈 것으로 보이고,
     // 그 위에 쓰면 읽을 수 없는 자료를 덮어써 버린다.
     function applyImport(text) {
-      if (storageStatus().status === 'unreadable') {
+      const current = readAll();
+      if (current.status === 'unreadable') {
         setFlash({
           kind: 'error',
           title: '파일을 가져오지 않았습니다',
@@ -221,7 +219,7 @@ export function createHistoryScreen() {
         return;
       }
 
-      const existing = allSessions();
+      const existing = current.sessions;
       const existingIds = new Set(existing.map((s) => s.id));
       const seen = new Set(existingIds);
       const added = [];
@@ -351,12 +349,13 @@ export function createHistoryScreen() {
 
     const backButton = () => button('돌아가기', { action: 'back' });
 
-    function studentsSection(sessions) {
-      if (sessions.length === 0) {
+    // all: readAll()의 결과. 이 화면은 그리는 동안 저장소를 더 읽지 않는다 — 읽을 때마다 전체를 다시 파싱하기 때문이다.
+    function studentsSection(all) {
+      if (all.sessions.length === 0) {
         return h('p', { dataset: { empty: '' }, text: '저장된 기록이 없습니다. 검사를 마치면 여기에 쌓입니다.' });
       }
-      const groups = listStudents().map((name) => {
-        const mine = listSessions(name).slice().reverse(); // 최근 회차가 먼저
+      const groups = all.students.map(({ alias: name, sessions: ofStudent }) => {
+        const mine = ofStudent.slice().reverse(); // 최근 회차가 먼저
         const label = name === '' ? '(별칭 없음)' : name;
         return h(
           'details',
@@ -406,8 +405,7 @@ export function createHistoryScreen() {
       );
     }
 
-    function unreadableNotice(raw) {
-      const status = storageStatus();
+    function unreadableNotice(raw, error) {
       return h(
         'div',
         { class: 'notice', dataset: { notice: 'unreadable' } },
@@ -417,7 +415,7 @@ export function createHistoryScreen() {
         raw === '' ? h('p', { text: '저장된 내용이 비어 있습니다. 내려받아도 빈 파일입니다.' }) : null,
         button('저장된 원본 내려받기', { exportKind: 'raw', secondary: false }),
         h('p', { class: 'text-muted', text: '원본을 받아 둔 뒤에, 맨 아래 "모든 기록 지우기"로 비우면 새 검사를 다시 저장할 수 있습니다.' }),
-        h('details', { class: 'notice-details' }, h('summary', { text: '오류 원문 보기 (문의할 때 필요합니다)' }), h('p', { text: status.error ?? '' })),
+        h('details', { class: 'notice-details' }, h('summary', { text: '오류 원문 보기 (문의할 때 필요합니다)' }), h('p', { text: error ?? '' })),
       );
     }
 
@@ -495,8 +493,8 @@ export function createHistoryScreen() {
     }
 
     function mainView() {
-      const status = storageStatus();
-      const unreadable = status.status === 'unreadable';
+      const all = readAll(); // 한 번만 읽는다. 아래 모든 구역이 이 결과를 쓴다.
+      const unreadable = all.status === 'unreadable';
       const raw = unreadable ? readRaw() : null; // 비교는 === null. 빈 문자열("")도 내려받을 원본이다.
       const inaccessible = unreadable && raw === null;
 
@@ -507,18 +505,18 @@ export function createHistoryScreen() {
         return parts;
       }
       if (unreadable) {
-        parts.push(unreadableNotice(raw), resetSection(0, true), pinSection(true, 0));
+        parts.push(unreadableNotice(raw, all.error), resetSection(0, true), pinSection(true, 0));
         return parts;
       }
 
-      const sessions = allSessions();
+      const count = all.sessions.length;
       parts.push(
-        h('section', { class: 'history-section', dataset: { section: 'students' } }, h('h2', { text: '학생과 회차' }), studentsSection(sessions)),
-        exportSection(sessions.length),
+        h('section', { class: 'history-section', dataset: { section: 'students' } }, h('h2', { text: '학생과 회차' }), studentsSection(all)),
+        exportSection(count),
         importSection(),
-        pinSection(false, sessions.length),
+        pinSection(false, count),
       );
-      if (sessions.length > 0) parts.push(resetSection(sessions.length, false));
+      if (count > 0) parts.push(resetSection(count, false));
       parts.push(backButton());
       return parts;
     }
@@ -540,7 +538,7 @@ export function createHistoryScreen() {
       if (!el || !container.contains(el) || el.disabled) return;
 
       if (el.dataset.sessionRow !== undefined) {
-        const session = allSessions().find((s) => s.id === el.dataset.sessionRow);
+        const session = readAll().sessions.find((s) => s.id === el.dataset.sessionRow); // 탭 한 번에 한 번 읽는다(그 사이 바뀌었을 수 있어 다시 읽는다)
         if (session) onOpenSession?.(session);
         else render(); // 그 사이 사라진 회차
         return;
