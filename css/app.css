@@ -956,6 +956,12 @@ input, select {
   background: var(--color-surface);
 }
 
+/* 해석 불가 회차: 막대 자리를 빗금 친 빈 칸으로 둔다(모양으로 "값이 아님"을 알린다. 색만으로 알리지 않는다). */
+.trend-track[data-unreliable="true"] {
+  border-style: dashed;
+  background: repeating-linear-gradient(135deg, var(--color-text-muted) 0 0.0625rem, transparent 0.0625rem 0.3125rem);
+}
+
 .trend-bar {
   display: block;
   height: 100%;

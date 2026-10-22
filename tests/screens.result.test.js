@@ -2,6 +2,7 @@
 // 결과 화면. 맨 앞의 10개는 계획서의 테스트 그대로이고(헬퍼만 이 파일에서 정의한다), 그 아래는 경계 확인을 테스트로 남긴 것이다.
 // 이 화면은 교사가 읽는 글이므로 문구도 테스트로 고정한다 — 숫자가 틀린 칸에 들어가면 지도 방향이 반대로 간다.
 
+import { readFileSync } from 'node:fs';
 import { LEVELS, THRESHOLDS, TOOL_VERSION, TRIAL_COUNTS } from '../js/config.js';
 import { computeMetrics } from '../js/metrics.js';
 import { evaluateBadge } from '../js/badge.js';
@@ -952,6 +953,66 @@ describe('회차별 추이', () => {
     expect(p.querySelector('[data-trend-rate]').textContent).toMatch(/3\/4/);
     expect(p.querySelector('[data-trend-rate]').textContent).toMatch(/75%/);
     expect(p.querySelector('[data-trend-bar]').style.width).toBe('75%');
+  });
+
+  // 아무것도 누르지 않은 학생은 억제 실패가 0이라 억제 성공률이 100%다. 그 막대가 추이의 가장 긴 막대가 되면 "아무것도 안 하면 만점"이
+  // 개선으로 읽힌다. 타일에는 "이 숫자로 학생을 판단하지 마세요"가 붙는 회차이므로 추이도 같은 말을 해야 한다.
+  describe('해석 불가 회차는 추이에서 막대를 그리지 않는다', () => {
+    const idle = () => Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? nogo(null) : go(null))); // 아무것도 안 누름: 누락 100%, 억제 성공률 100%
+    const good = () => [go(500), go(520), nogo(null), nogo(null), nogo(null), nogo(500)]; // 억제 성공률 75%, 하지만 No-Go 4개뿐이라 참고용
+
+    test('아무것도 누르지 않은 회차: 칸(행)과 해석 불가 표시는 남고 막대는 없다', () => {
+      mountResult({ session: sessionFixture({ level: 2, responses: idle() }) });
+      const p = qs('[data-trend-point]');
+      expect(evaluateBadge(computeMetrics(idle())).status).toBe('uninterpretable');
+      expect(p.querySelector('[data-trend-bar]')).toBeNull();
+      expect(p.querySelector('.trend-track')).not.toBeNull(); // 자리는 남는다
+      expect(p.dataset.unreliable).toBe('true');
+      expect(p.dataset.reference).toBe('true');
+      expect(p.querySelector('.trend-track').dataset.unreliable).toBe('true'); // CSS가 빗금을 친다
+      expect(p.textContent).toMatch(/해석 불가/);
+      expect(p.textContent).toMatch(/이 숫자로 학생을 판단하지 마세요/);
+    });
+
+    test('그 회차가 이전 회차여도 마찬가지다 (오른쪽 끝이 아니라 어디에 있든)', () => {
+      seedSessions([{ level: 2, responses: idle() }]);
+      mountResult({ session: sessionFixture({ level: 2, responses: good() }) });
+      const [old, now] = qsa('[data-trend-point]');
+      expect(old.querySelector('[data-trend-bar]')).toBeNull();
+      expect(now.querySelector('[data-trend-bar]')).not.toBeNull();
+      expect(old.dataset.unreliable).toBe('true');
+      expect(now.dataset.unreliable).toBeUndefined();
+    });
+
+    test('정상(ok) 회차는 그대로 막대를 그린다', () => {
+      const responses = Array.from({ length: 24 }, (_, i) => (i % 3 === 2 ? nogo(i % 6 === 5 ? 500 : null) : go(500)));
+      expect(evaluateBadge(computeMetrics(responses)).status).toBe('ok');
+      mountResult({ session: sessionFixture({ level: 2, responses }) });
+      const p = qs('[data-trend-point]');
+      expect(p.querySelector('[data-trend-bar]')).not.toBeNull();
+      expect(p.querySelector('[data-trend-bar]').style.width).toBe('50%');
+      expect(p.dataset.unreliable).toBeUndefined();
+      expect(p.querySelector('.trend-track').dataset.unreliable).toBeUndefined();
+    });
+
+    test('참고용(reference)·주의(caution) 회차의 막대는 그대로다 — 이 변경은 해석 불가에만 걸린다', () => {
+      const few = [go(500), go(520), nogo(null), nogo(null), nogo(null), nogo(500)]; // No-Go 4개뿐 → 참고용
+      expect(evaluateBadge(computeMetrics(few)).status).toBe('reference');
+      mountResult({ session: sessionFixture({ level: 2, responses: few }) });
+      expect(qs('[data-trend-point] [data-trend-bar]')).not.toBeNull();
+    });
+
+    test('css: 해석 불가 회차의 빈 칸은 빗금으로 구별된다 (색만으로 알리지 않고, 막대처럼 보이지 않게)', () => {
+      const css = readFileSync('css/app.css', 'utf8');
+      const rule = /\.trend-track\[data-unreliable="true"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+      expect(rule).toMatch(/repeating-linear-gradient/);
+      expect(rule).toMatch(/border-style:\s*dashed/);
+    });
+
+    test('막대가 없어도 억제 성공률 숫자는 남는다 (자료를 숨기지 않고, 값처럼 보이게 그리지 않을 뿐이다)', () => {
+      mountResult({ session: sessionFixture({ level: 2, responses: idle() }) });
+      expect(qs('[data-trend-rate]').textContent).toMatch(/10\/10/);
+    });
   });
 
   test('No-Go가 없던 회차의 점은 비율 대신 "계산 불가"로 적는다', () => {

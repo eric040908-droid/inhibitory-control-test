@@ -406,17 +406,22 @@ function trendPoint(session, isCurrent, differentDevice = false) {
   const status = STATUS[badge.status] ?? STATUS.caution;
   const hasRate = metrics.noGoTrials > 0;
   const rate = hasRate ? metrics.correctRejections / metrics.noGoTrials : null;
+  // 해석 불가 회차는 막대를 그리지 않는다. 아무것도 누르지 않은 학생은 억제 실패가 0이라 억제 성공률이 100%로 나오는데,
+  // 그것이 추이의 가장 긴 막대로 그려지면 "아무것도 안 하면 만점"이 개선으로 읽힌다. 막대를 그릴 자리는 빗금 친 빈 칸으로 두어
+  // 값이 아니라는 것을 모양으로 알리고(타일과 같은 reference/unreliable 표시), 숫자와 이유는 글자로 남긴다.
+  const unreliable = badge.status === 'uninterpretable';
+  const drawsBar = hasRate && !unreliable;
   const tags = [];
   if (badge.status !== 'ok') tags.push(status.label);
   if (differentDevice) tags.push('다른 기기');
   const li = h(
     'li',
-    { class: 'trend-point', dataset: { trendPoint: '', ...(isCurrent ? { current: 'true' } : {}) } },
+    { class: 'trend-point', dataset: { trendPoint: '', ...(isCurrent ? { current: 'true' } : {}), ...(unreliable ? { reference: 'true', unreliable: 'true' } : {}) } },
     h('span', { class: 'trend-when', text: formatShortDate(session.startedAt) }),
     h(
       'span',
-      { class: 'trend-track' },
-      hasRate ? h('span', { class: 'trend-bar', dataset: { trendBar: '' }, style: `width: ${Math.round(rate * 100)}%` }) : null,
+      { class: 'trend-track', dataset: unreliable ? { reference: 'true', unreliable: 'true' } : {} },
+      drawsBar ? h('span', { class: 'trend-bar', dataset: { trendBar: '' }, style: `width: ${Math.round(rate * 100)}%` }) : null,
     ),
     h('span', {
       class: 'trend-rate',
@@ -424,6 +429,7 @@ function trendPoint(session, isCurrent, differentDevice = false) {
       text: hasRate ? `${metrics.correctRejections}/${metrics.noGoTrials} (${pct(rate)})` : '참아야 할 그림이 없어 계산할 수 없습니다',
     }),
     tags.length ? h('span', { class: 'trend-tag', text: tags.join(' · ') }) : null,
+    unreliable ? h('span', { class: 'trend-tag', dataset: { referenceNote: '' }, text: UNRELIABLE_NOTE }) : null,
     isCurrent ? h('span', { class: 'trend-now', text: '◀ 이번 회차' }) : null,
   );
   return li;
