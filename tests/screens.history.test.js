@@ -837,12 +837,33 @@ describe('PIN 잠금', () => {
     expect(qs('[data-pin-gate]')).not.toBeNull();
   });
 
-  test('잠금 화면에서도 돌아가기가 되고, PIN을 잊어도 사이트 데이터를 지우지 말라고 알린다', () => {
+  test('잠금 화면에서도 돌아가기가 된다', () => {
     setPin('1234');
     const { onBack } = mountHistory();
     click(qs('[data-action="back"]'));
     expect(onBack).toHaveBeenCalledTimes(1);
-    expect(qs('[data-pin-gate]').textContent).toMatch(/지우지 마세요/);
+  });
+
+  test('잠금 화면 안내가 PIN을 잊었을 때의 두 경우(백업이 있을 때, 없을 때)를 모두 말한다', () => {
+    setPin('1234');
+    mountHistory();
+    const text = qs('[data-pin-forgot]').textContent;
+    expect(text).toMatch(/이 앱에서는 기록을 열 수 없습니다/);
+    expect(text).toMatch(/사이트의 데이터를 지우는 것/);
+    // 백업이 있는 경우: 지운 뒤 가져오기로 복원
+    expect(text).toMatch(/백업\(JSON\) 파일이 있다면/);
+    expect(text).toMatch(/백업 파일 가져오기/);
+    // 백업이 없는 경우: 지우면 사라진다
+    expect(text).toMatch(/백업이 없다면 사이트 데이터를 지우지 마세요/);
+    expect(text).toMatch(/모두 사라집니다/);
+  });
+
+  test('잠금 화면 안내는 잠금 뒤의 내용(회차 수 등)을 드러내지 않는다', () => {
+    seedSessions([{ id: 'a' }]);
+    setPin('1234');
+    mountHistory();
+    expect(qs('[data-pin-forgot]').textContent).not.toMatch(/\d+회차/);
+    expect(qs('[data-pin-gate] [data-export]')).toBeNull();
   });
 
   test('결과 화면에 다녀와 다시 마운트해도 같은 화면 인스턴스는 열린 채이고, 돌아가기로 나가면 다시 잠긴다', () => {
@@ -922,6 +943,61 @@ describe('PIN 잠금', () => {
     test('PIN 안내가 보안 장치가 아니라는 것을 밝힌다', () => {
       mountHistory();
       expect(qs('[data-pin-settings]').textContent).toMatch(/보안 장치가 아닙니다/);
+    });
+
+    test('PIN을 켜기 전에(켜는 화면에) 잊었을 때의 경고 세 가지가 이미 보인다', () => {
+      seedSessions([{ id: 'a' }]);
+      mountHistory();
+      expect(isEnabled()).toBe(false);
+      const text = qs('[data-pin-settings] [data-pin-warning]').textContent;
+      expect(text).toMatch(/PIN을 잊으면 이 앱에서는 기록을 열 수 없습니다/);
+      expect(text).toMatch(/브라우저 설정에서 이 사이트의 데이터를 지우는 것/);
+      expect(text).toMatch(/기록도 함께 사라집니다/);
+      expect(text).toMatch(/PIN을 켜기 전에 백업\(JSON\)을 먼저 내려받아 두기를 권합니다/);
+    });
+
+    test('경고는 PIN이 켜져 있어 바꿀 때도 보인다', () => {
+      setPin('1234');
+      mountHistory();
+      type(qs('[data-pin-input]'), '1234');
+      click(qs('[data-action="unlock"]'));
+      expect(qs('[data-pin-warning]')).not.toBeNull();
+    });
+
+    test('PIN 켜기 화면에서 바로 JSON 백업을 내려받을 수 있다 (모든 회차가 담긴 복원용 파일)', async () => {
+      seedSessions([{ id: 'a' }, { id: 'b', studentAlias: '둘째' }]);
+      mountHistory();
+      const backupButton = qs('[data-pin-warning] [data-export="json"]');
+      expect(backupButton).not.toBeNull();
+      expect(backupButton.disabled).toBe(false);
+      click(backupButton);
+      expect(blobs).toHaveLength(1);
+      const parsed = parseBackupJson(new TextDecoder().decode(await readBytes(blobs[0])));
+      expect(parsed.sessions.map((s) => s.id).sort()).toEqual(['a', 'b']);
+      expect(downloads[0].download).toMatch(/backup.*.json$/);
+    });
+
+    test('받을 기록이 없으면 그 버튼은 눌 수 없고 이유를 말한다', () => {
+      mountHistory();
+      expect(qs('[data-pin-warning] [data-export="json"]').disabled).toBe(true);
+      expect(qs('[data-pin-warning]').textContent).toMatch(/받을 백업이 없습니다/);
+    });
+
+    test('읽을 수 없는 저장소에서는 그 자리의 버튼이 원본 내려받기이고, JSON 백업 버튼은 없다', async () => {
+      memory.setItem(STORAGE_KEY, '{ broken');
+      mountHistory();
+      expect(qs('[data-pin-warning] [data-export="json"]')).toBeNull();
+      click(qs('[data-pin-warning] [data-export="raw"]'));
+      expect(new TextDecoder().decode(await readBytes(blobs[0]))).toBe('{ broken');
+    });
+
+    test('켠 뒤 안내도 잊으면 기록을 열 수 없다는 것과 백업 없이 지우지 말라는 것을 말한다', () => {
+      mountHistory();
+      type(qs('[data-pin-set-input]'), '4321');
+      click(qs('[data-action="pin-save"]'));
+      const text = qs('[data-flash]').textContent;
+      expect(text).toMatch(/PIN을 잊으면 이 앱에서는 기록을 열 수 없습니다/);
+      expect(text).toMatch(/백업\(JSON\)을 받아 두지 않았다면/);
     });
   });
 });

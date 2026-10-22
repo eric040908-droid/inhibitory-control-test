@@ -315,7 +315,7 @@ export function createHistoryScreen() {
         setFlash({
           kind: 'ok',
           title: wasEnabled ? 'PIN을 바꿨습니다' : 'PIN 잠금을 켰습니다',
-          paragraphs: ['이 화면에서 나가면 다음부터 PIN을 묻습니다. PIN을 잊어도 브라우저의 사이트 데이터는 지우지 마세요. 저장된 기록이 함께 사라집니다.'],
+          paragraphs: ['이 화면에서 나가면 다음부터 PIN을 묻습니다. PIN을 잊으면 이 앱에서는 기록을 열 수 없습니다. 백업(JSON)을 받아 두지 않았다면 브라우저의 사이트 데이터를 지우지 마세요. 지우면 기록도 함께 사라집니다.'],
         });
       } else {
         setFlash({
@@ -367,7 +367,14 @@ export function createHistoryScreen() {
           pinError ? h('p', { class: 'field-error', role: 'alert', dataset: { pinError: '' } }, h('span', { 'aria-hidden': 'true', text: '⚠ ' }), 'PIN이 맞지 않습니다. 다시 입력해 주세요.') : null,
           button('열기', { action: 'unlock', secondary: false, type: 'submit' }),
         ),
-        h('p', { class: 'text-muted', text: 'PIN을 잊었어도 브라우저의 사이트 데이터는 지우지 마세요. 저장된 기록이 함께 사라집니다.' }),
+        h(
+          'div',
+          { class: 'text-muted', dataset: { pinForgot: '' } },
+          h('p', { class: 'notice-title', text: 'PIN을 잊었다면' }),
+          h('p', { text: '이 앱에서는 기록을 열 수 없습니다. 남은 방법은 브라우저 설정에서 이 사이트의 데이터를 지우는 것입니다.' }),
+          h('p', { text: '미리 받아 둔 백업(JSON) 파일이 있다면 데이터를 지운 뒤 이력 화면의 "백업 파일 가져오기"로 복원할 수 있습니다.' }),
+          h('p', { text: '백업이 없다면 사이트 데이터를 지우지 마세요. 지우는 순간 저장된 기록이 모두 사라집니다.' }),
+        ),
         backButton(),
       );
     }
@@ -452,7 +459,24 @@ export function createHistoryScreen() {
       );
     }
 
-    function pinSection() {
+    // PIN을 켜기 전에 읽게 하는 경고와, 그 자리에서 바로 받을 수 있는 백업 버튼. 권하기만 하고 버튼이 다른 데 있으면 아무도 안 받는다.
+    // 읽을 수 없는 저장소에서는 JSON 백업이 없으므로(빈 파일을 백업으로 오해하지 않게) 원본 내려받기를 준다.
+    function pinWarning(unreadable, count) {
+      return h(
+        'div',
+        { class: 'notice', dataset: { pinWarning: '' } },
+        h('p', { class: 'notice-title' }, h('span', { 'aria-hidden': 'true', text: '⚠ ' }), 'PIN을 켜기 전에 읽어 주세요'),
+        h('p', { text: 'PIN을 잊으면 이 앱에서는 기록을 열 수 없습니다.' }),
+        h('p', { text: '그때 남은 방법은 브라우저 설정에서 이 사이트의 데이터를 지우는 것이고, 그러면 기록도 함께 사라집니다.' }),
+        h('p', { text: '그래서 PIN을 켜기 전에 백업(JSON)을 먼저 내려받아 두기를 권합니다.' }),
+        unreadable
+          ? button('저장된 원본 내려받기', { exportKind: 'raw' })
+          : button('복원용 JSON 백업 내려받기', { exportKind: 'json', disabled: count === 0 }),
+        !unreadable && count === 0 ? h('p', { class: 'text-muted', text: '저장된 기록이 아직 없어 받을 백업이 없습니다.' }) : null,
+      );
+    }
+
+    function pinSection(unreadable, count) {
       const enabled = pin.isEnabled();
       return h(
         'section',
@@ -460,6 +484,7 @@ export function createHistoryScreen() {
         h('h2', { text: 'PIN 잠금' }),
         h('p', { text: enabled ? 'PIN 잠금이 켜져 있습니다. 이력 화면을 열 때 PIN을 먼저 묻습니다.' : 'PIN 잠금이 꺼져 있습니다. 켜면 이력 화면을 열 때 PIN을 먼저 묻습니다.' }),
         h('p', { class: 'text-muted', text: '학교 공용 기기에서 학생이 다른 학생의 이름과 결과를 우연히 보지 않게 하는 용도입니다. 보안 장치가 아닙니다.' }),
+        pinWarning(unreadable, count),
         h(
           'form',
           { dataset: { pinSetForm: '' }, novalidate: true },
@@ -510,7 +535,7 @@ export function createHistoryScreen() {
         return parts;
       }
       if (unreadable) {
-        parts.push(unreadableNotice(raw), resetSection(0, true), pinSection());
+        parts.push(unreadableNotice(raw), resetSection(0, true), pinSection(true, 0));
         return parts;
       }
 
@@ -519,7 +544,7 @@ export function createHistoryScreen() {
         h('section', { class: 'history-section', dataset: { section: 'students' } }, h('h2', { text: '학생과 회차' }), studentsSection(sessions)),
         exportSection(sessions.length),
         importSection(),
-        pinSection(),
+        pinSection(false, sessions.length),
       );
       if (sessions.length > 0) parts.push(resetSection(sessions.length, false));
       parts.push(backButton());
