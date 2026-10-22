@@ -250,8 +250,8 @@ describe('별칭', () => {
   });
 });
 
-// ---- 시작·결과 보기 ---------------------------------------------------------------------------
-describe('시작과 결과 보기', () => {
+// ---- 시작·기록·이력 보기 ---------------------------------------------------------------------------
+describe('시작과 기록·이력 보기', () => {
   test('기본값은 보통 길이, 연습으로 난이도 결정, 첫 번째 테마다', () => {
     mountSetup();
     expect(qs('input[name="length"]:checked').value).toBe('medium');
@@ -307,7 +307,14 @@ describe('시작과 결과 보기', () => {
     }
   });
 
-  test('결과 보기는 onHistory를 부른다', () => {
+  test('이력으로 가는 버튼의 이름은 "기록·이력 보기"이다 (결과 화면의 저장 실패 안내가 "이력 화면"으로 보낸다)', () => {
+    mountSetup();
+    expect(historyButton().textContent).toBe('기록·이력 보기');
+    expect(historyButton().textContent).not.toBe('결과 보기');
+    expect(document.body.textContent).not.toContain('결과 보기');
+  });
+
+  test('기록·이력 보기는 onHistory를 부른다', () => {
     const { onHistory } = mountSetup();
     tap(historyButton());
     expect(onHistory).toHaveBeenCalledTimes(1);
@@ -327,7 +334,7 @@ describe('시작과 결과 보기', () => {
 // 학생의 반응 입력만 pointerdown이다(반응시간을 재는 경로). 이 화면은 스크롤되므로, 버튼을 pointerdown으로 두면
 // 스크롤하려고 손가락을 댄 것이 버튼을 눌러 버린다. click은 브라우저가 탭과 스크롤을 가려 준다.
 describe('입력 방식', () => {
-  test('시작·바로 시작·결과 보기는 click으로 동작한다', () => {
+  test('시작·바로 시작·기록·이력 보기는 click으로 동작한다', () => {
     saveLastSetup({ alias: '학생1', themeId: 'animal', level: 2, length: 'medium' });
     const first = mountSetup();
     tap(quickStartButton());
@@ -706,7 +713,7 @@ describe('화면 주사율 측정 (연구 자료용)', () => {
 
 // ---- unmount ------------------------------------------------------------------------------------
 describe('unmount가 정리한다', () => {
-  test('unmount 뒤에는 시작·바로 시작·결과 보기 입력에 반응하지 않는다', () => {
+  test('unmount 뒤에는 시작·바로 시작·기록·이력 보기 입력에 반응하지 않는다', () => {
     saveLastSetup({ alias: '학생1', themeId: 'animal', level: 2, length: 'medium' });
     const { onStart, onHistory } = mountSetup();
     typeAlias('학생1');

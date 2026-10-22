@@ -574,7 +574,7 @@ export function classifySaveError(error) {
   return 'other';
 }
 
-const SAVE_FAILED_TEXT = {
+export const SAVE_FAILED_TEXT = {
   quota: [
     '저장 공간이 부족해 이 기기에 저장하지 못했습니다.',
     '이력 화면에서 기록을 내보내 백업한 뒤 브라우저의 이 사이트 저장 공간을 정리하세요. 이 회차는 다시 저장할 수 없고, 필요하면 다시 검사해야 합니다.',

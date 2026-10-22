@@ -330,7 +330,8 @@ export function createSetupScreen(deps) {
         '교사 한 분의 폰으로 여러 학생을 검사하면 문제없습니다. 학생 개인 폰으로 검사하면 기기마다 기록이 따로 남아 추이가 흩어집니다.',
       ], { symbol: 'ℹ' }));
 
-      // 시작, 결과 보기
+      // 시작, 기록·이력 보기. 이 버튼의 이름은 결과 화면의 저장 실패 안내("이력 화면에서 기록을 내보내…")와 이력 화면의 제목("이력")이
+      // 가리키는 곳과 맞아야 한다 — 데이터가 위험한 순간에 교사가 이름으로 이 버튼을 찾는다. 셋 중 하나를 바꾸면 나머지도 바꾼다(tests가 맞춰 본다).
       const start = h('button', { type: 'button', class: 'btn btn-block', dataset: { action: 'start' }, text: '시작' });
       press(start, () => {
         const alias = aliasInput.value.trim();
@@ -344,7 +345,7 @@ export function createSetupScreen(deps) {
         saveLastSetup({ alias, themeId: state.themeId, level: state.level, length: state.length });
         begin(setup);
       });
-      const history = h('button', { type: 'button', class: 'btn btn-secondary btn-block', dataset: { action: 'history' }, text: '결과 보기' });
+      const history = h('button', { type: 'button', class: 'btn btn-secondary btn-block', dataset: { action: 'history' }, text: '기록·이력 보기' });
       press(history, () => { onHistory?.(); });
       children.push(h('div', { class: 'setup-actions' }, start, history));
 

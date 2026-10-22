@@ -233,13 +233,28 @@ describe('설정 화면 → 이력 화면 → 결과 화면', () => {
   beforeEach(() => { localStorage.clear(); seed(); });
   afterEach(() => { localStorage.clear(); });
 
-  test('결과 보기(click)를 누르면 이력 화면이 뜨고, 돌아가기는 설정 화면으로 보낸다', async () => {
+  test('기록·이력 보기(click)를 누르면 이력 화면이 뜨고, 돌아가기는 설정 화면으로 보낸다', async () => {
     const { main } = await boot();
     click(document.querySelector('[data-action="history"]'));
     expect(main.router.current()).toBe('history');
     expect(document.querySelector('[data-screen="history"]')).not.toBeNull();
     click(document.querySelector('[data-action="back"]'));
     expect(main.router.current()).toBe('setup');
+  });
+
+  // 결과 화면의 저장 실패 안내는 "이력 화면에서 기록을 내보내…"라고 말한다. 그 말을 읽은 교사가 설정 화면에서 찾는 버튼과,
+  // 눌러서 도착한 화면의 제목이 같은 낱말("이력")이어야 한다.
+  test('설정 화면의 버튼 이름, 도착한 화면의 제목, 저장 실패 안내가 같은 낱말로 서로를 가리킨다', async () => {
+    await boot();
+    const label = document.querySelector('[data-action="history"]').textContent;
+    click(document.querySelector('[data-action="history"]'));
+    const heading = document.querySelector('[data-screen="history"] h1').textContent;
+    expect(heading).toBe('이력');
+    expect(label).toContain(heading);
+    const { SAVE_FAILED_TEXT } = await import('../js/screens/result.js');
+    for (const kind of ['quota', 'unreadable']) {
+      expect(SAVE_FAILED_TEXT[kind].join(' '), kind).toContain(`${heading} 화면`);
+    }
   });
 
   test('회차를 열면 결과 화면이 뜨고, 돌아가면 그 학생의 묶음이 펼쳐진 이력 화면으로 온다', async () => {
